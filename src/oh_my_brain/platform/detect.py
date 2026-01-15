@@ -46,13 +46,16 @@ def get_platform_adapter() -> PlatformAdapter:
 
     if plat == "linux" or plat == "darwin":
         from oh_my_brain.platform.linux import LinuxAdapter
+
         return LinuxAdapter()
     elif plat == "windows":
         from oh_my_brain.platform.windows import WindowsAdapter
+
         return WindowsAdapter()
     else:
         # 默认使用Linux适配器
         from oh_my_brain.platform.linux import LinuxAdapter
+
         return LinuxAdapter()
 
 

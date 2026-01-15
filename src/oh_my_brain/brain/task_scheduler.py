@@ -112,8 +112,7 @@ class TaskScheduler:
     def _update_pending_queue(self) -> None:
         """更新待分配队列."""
         completed_tasks = {
-            tid for tid, task in self._tasks.items()
-            if task.status == TaskStatus.COMPLETED
+            tid for tid, task in self._tasks.items() if task.status == TaskStatus.COMPLETED
         }
 
         # 找出所有就绪的任务

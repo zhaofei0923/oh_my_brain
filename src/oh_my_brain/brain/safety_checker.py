@@ -133,8 +133,7 @@ class SafetyChecker:
             if f" {path}" in command or f" {path}/" in command:
                 # 允许读取，禁止写入/删除
                 if any(
-                    op in command
-                    for op in ["rm ", "mv ", "cp ", "> ", ">> ", "chmod ", "chown "]
+                    op in command for op in ["rm ", "mv ", "cp ", "> ", ">> ", "chmod ", "chown "]
                 ):
                     return SafetyCheckResult(
                         approved=False,

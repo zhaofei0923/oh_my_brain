@@ -218,32 +218,40 @@ class MiniAgentAdapter(WorkerBase):
         ]
 
         if task.requirements:
-            prompt_parts.extend([
-                "## Requirements",
-                task.requirements,
-                "",
-            ])
+            prompt_parts.extend(
+                [
+                    "## Requirements",
+                    task.requirements,
+                    "",
+                ]
+            )
 
         if task.files_involved:
-            prompt_parts.extend([
-                "## Files to work on",
-                "\n".join(f"- {f}" for f in task.files_involved),
-                "",
-            ])
+            prompt_parts.extend(
+                [
+                    "## Files to work on",
+                    "\n".join(f"- {f}" for f in task.files_involved),
+                    "",
+                ]
+            )
 
         if task.acceptance_criteria:
-            prompt_parts.extend([
-                "## Acceptance Criteria",
-                task.acceptance_criteria,
-                "",
-            ])
+            prompt_parts.extend(
+                [
+                    "## Acceptance Criteria",
+                    task.acceptance_criteria,
+                    "",
+                ]
+            )
 
-        prompt_parts.extend([
-            "## Instructions",
-            "Complete the task as described above.",
-            "Make sure to follow best practices and write clean, maintainable code.",
-            "Test your changes before marking the task as complete.",
-        ])
+        prompt_parts.extend(
+            [
+                "## Instructions",
+                "Complete the task as described above.",
+                "Make sure to follow best practices and write clean, maintainable code.",
+                "Test your changes before marking the task as complete.",
+            ]
+        )
 
         return "\n".join(prompt_parts)
 

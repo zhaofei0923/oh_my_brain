@@ -220,9 +220,7 @@ class BrainServer:
         # 发送确认
         await self._send_ack(identity, message.msg_id)
 
-    async def _handle_worker_unregister(
-        self, identity: bytes, message: BrainMessage
-    ) -> None:
+    async def _handle_worker_unregister(self, identity: bytes, message: BrainMessage) -> None:
         """处理Worker注销."""
         worker_id = self._identity_map.get(identity)
         if worker_id:
@@ -230,9 +228,7 @@ class BrainServer:
             del self._identity_map[identity]
             logger.info(f"Worker unregistered: {worker_id}")
 
-    async def _handle_heartbeat(
-        self, identity: bytes, message: HeartbeatMessage
-    ) -> None:
+    async def _handle_heartbeat(self, identity: bytes, message: HeartbeatMessage) -> None:
         """处理心跳."""
         worker_id = message.payload.worker_id
         worker = self._workers.get(worker_id)
@@ -242,9 +238,7 @@ class BrainServer:
             worker.status = message.payload.status
             worker.current_task_id = message.payload.current_task_id
 
-    async def _handle_task_request(
-        self, identity: bytes, message: BrainMessage
-    ) -> None:
+    async def _handle_task_request(self, identity: bytes, message: BrainMessage) -> None:
         """处理任务请求."""
         worker_id = self._identity_map.get(identity)
         if not worker_id:
@@ -301,9 +295,7 @@ class BrainServer:
         worker.status = "busy"
         worker.current_task_id = task.id
 
-    async def _handle_task_result(
-        self, identity: bytes, message: TaskResultMessage
-    ) -> None:
+    async def _handle_task_result(self, identity: bytes, message: TaskResultMessage) -> None:
         """处理任务结果."""
         payload = message.payload
         worker_id = self._identity_map.get(identity)
@@ -322,18 +314,14 @@ class BrainServer:
 
         # 更新上下文
         if payload.context_update:
-            await self._context_manager.update_context(
-                payload.task_id, payload.context_update
-            )
+            await self._context_manager.update_context(payload.task_id, payload.context_update)
 
         logger.info(
             f"Task {payload.task_id} completed: success={payload.success}, "
             f"tokens={payload.tokens_used}"
         )
 
-    async def _handle_context_get(
-        self, identity: bytes, message: ContextGetRequest
-    ) -> None:
+    async def _handle_context_get(self, identity: bytes, message: ContextGetRequest) -> None:
         """处理上下文获取请求."""
         payload = message.payload
         context = await self._context_manager.get_context(payload.task_id)
@@ -352,9 +340,7 @@ class BrainServer:
 
         await self._transport.send(response.to_bytes(), identity)  # type: ignore
 
-    async def _handle_context_update(
-        self, identity: bytes, message: ContextUpdateRequest
-    ) -> None:
+    async def _handle_context_update(self, identity: bytes, message: ContextUpdateRequest) -> None:
         """处理上下文更新请求."""
         payload = message.payload
         await self._context_manager.update_context(
@@ -366,9 +352,7 @@ class BrainServer:
         )
         await self._send_ack(identity, message.msg_id)
 
-    async def _handle_safety_check(
-        self, identity: bytes, message: SafetyCheckRequest
-    ) -> None:
+    async def _handle_safety_check(self, identity: bytes, message: SafetyCheckRequest) -> None:
         """处理安全检查请求."""
         payload = message.payload
         result = self._safety_checker.check(
@@ -389,9 +373,7 @@ class BrainServer:
 
         await self._transport.send(response.to_bytes(), identity)  # type: ignore
 
-    async def _send_ack(
-        self, identity: bytes, msg_id: str, data: dict | None = None
-    ) -> None:
+    async def _send_ack(self, identity: bytes, msg_id: str, data: dict | None = None) -> None:
         """发送确认消息."""
         ack = BrainMessage(
             msg_type=MessageType.ACK,

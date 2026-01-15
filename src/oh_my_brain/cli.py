@@ -81,8 +81,7 @@ def brain_start(
 
     console.print(
         Panel.fit(
-            "[bold blue]OH MY BRAIN[/bold blue]\n"
-            "[dim]Multi-Agent Collaborative Development[/dim]",
+            "[bold blue]OH MY BRAIN[/bold blue]\n[dim]Multi-Agent Collaborative Development[/dim]",
             border_style="blue",
         )
     )

@@ -35,17 +35,13 @@ class ModelConfig(BaseModel):
     provider: ModelProvider = Field(..., description="API协议类型")
     api_base: str = Field(..., description="API基础URL")
     model: str = Field(..., description="模型标识符")
-    api_key_env: str = Field(
-        ..., description="API Key环境变量名（不直接存储密钥）"
-    )
+    api_key_env: str = Field(..., description="API Key环境变量名（不直接存储密钥）")
 
     # 成本与性能参考（帮助用户决策）
     cost_per_1k_tokens: float = Field(
         0.0, ge=0, description="每1000 token费用（美元），用于成本预估"
     )
-    avg_latency_ms: int = Field(
-        1000, ge=0, description="平均响应延迟（毫秒），用于性能参考"
-    )
+    avg_latency_ms: int = Field(1000, ge=0, description="平均响应延迟（毫秒），用于性能参考")
 
     # 能力标签
     capabilities: list[ModelCapability] = Field(
@@ -101,9 +97,7 @@ class BrainSuggestionConfig(BaseModel):
     """Brain建议配置."""
 
     enabled: bool = Field(True, description="是否启用Brain建议")
-    auto_apply: bool = Field(
-        False, description="是否自动应用建议（False则需用户确认）"
-    )
+    auto_apply: bool = Field(False, description="是否自动应用建议（False则需用户确认）")
     consider_cost: bool = Field(True, description="建议时考虑成本因素")
     consider_latency: bool = Field(True, description="建议时考虑延迟因素")
     consider_capability: bool = Field(True, description="建议时考虑能力匹配")
@@ -122,15 +116,9 @@ class ModelPoolConfig(BaseModel):
     )
 
     # 高可用配置
-    health_check_interval_seconds: int = Field(
-        30, description="健康检查间隔（秒）"
-    )
-    max_consecutive_failures: int = Field(
-        3, description="最大连续失败次数，超过则标记不健康"
-    )
-    circuit_breaker_reset_seconds: int = Field(
-        60, description="熔断器重置时间（秒）"
-    )
+    health_check_interval_seconds: int = Field(30, description="健康检查间隔（秒）")
+    max_consecutive_failures: int = Field(3, description="最大连续失败次数，超过则标记不健康")
+    circuit_breaker_reset_seconds: int = Field(60, description="熔断器重置时间（秒）")
 
     model_config = {
         "extra": "forbid",
@@ -178,8 +166,6 @@ class ModelPoolConfig(BaseModel):
         """获取所有健康的模型."""
         return [m for m in self.models if m.is_healthy]
 
-    def get_models_with_capability(
-        self, capability: ModelCapability
-    ) -> list[ModelConfig]:
+    def get_models_with_capability(self, capability: ModelCapability) -> list[ModelConfig]:
         """获取具有指定能力的模型."""
         return [m for m in self.models if capability in m.capabilities and m.is_healthy]

@@ -151,9 +151,7 @@ class ContextManager:
         notes.append(note)
         await self.update_context(task_id, {"notes": notes}, merge=True)
 
-    async def get_notes(
-        self, task_id: str, category: str | None = None
-    ) -> list[dict[str, Any]]:
+    async def get_notes(self, task_id: str, category: str | None = None) -> list[dict[str, Any]]:
         """获取笔记.
 
         Args:
@@ -229,9 +227,7 @@ class ContextManager:
         context["messages"] = [summary_message] + recent_messages
         context["token_count"] = self._count_tokens(context)
 
-        logger.info(
-            f"Context compressed: {len(messages)} -> {len(context['messages'])} messages"
-        )
+        logger.info(f"Context compressed: {len(messages)} -> {len(context['messages'])} messages")
 
         return context
 

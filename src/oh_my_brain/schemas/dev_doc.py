@@ -29,12 +29,8 @@ class SubTask(BaseModel):
     name: str = Field(..., description="子任务名称", min_length=1, max_length=100)
     type: TaskType = Field(..., description="任务类型")
     description: str = Field(..., description="详细描述")
-    estimated_minutes: int = Field(
-        30, ge=5, le=120, description="预估时长(分钟)，建议5-120分钟"
-    )
-    files_involved: list[str] = Field(
-        default_factory=list, description="涉及的文件路径列表"
-    )
+    estimated_minutes: int = Field(30, ge=5, le=120, description="预估时长(分钟)，建议5-120分钟")
+    files_involved: list[str] = Field(default_factory=list, description="涉及的文件路径列表")
     requirements: str = Field(..., description="具体需求说明，越详细越好")
     preferred_model: str | None = Field(
         None, description="用户指定的AI模型名称（可选，覆盖默认映射）"

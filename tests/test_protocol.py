@@ -1,6 +1,5 @@
 """Protocol测试."""
 
-
 from oh_my_brain.protocol.messages import (
     ContextRequest,
     ContextUpdate,

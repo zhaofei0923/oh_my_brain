@@ -125,7 +125,9 @@ class AnthropicClient(BaseLLMClient):
 
                 self._client = AsyncAnthropic(api_key=self._api_key)
             except ImportError:
-                raise ImportError("anthropic package not installed. Install with: pip install anthropic")
+                raise ImportError(
+                    "anthropic package not installed. Install with: pip install anthropic"
+                )
         return self._client
 
     async def complete(self, prompt: str, **kwargs) -> str:
@@ -168,7 +170,7 @@ class LLMClient:
         "gpt-": "openai",
         "claude-": "anthropic",
         "deepseek-": "openai",  # DeepSeek使用OpenAI兼容API
-        "minimax-": "openai",   # MiniMax使用OpenAI兼容API
+        "minimax-": "openai",  # MiniMax使用OpenAI兼容API
     }
 
     # 特殊模型的API配置

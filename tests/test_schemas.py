@@ -1,6 +1,5 @@
 """Schema测试."""
 
-
 from oh_my_brain.schemas.dev_doc import DevDoc
 from oh_my_brain.schemas.task import Task, TaskStatus, TaskType
 
