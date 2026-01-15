@@ -5,6 +5,7 @@
 2. 最佳实践
 3. 常见问题解决方案
 4. 代码模式和反模式
+5. RAG 检索增强生成
 """
 
 import json
@@ -15,6 +16,25 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+# 导出 RAG 组件
+from oh_my_brain.knowledge.rag import (
+    RAGContext,
+    RAGEngine,
+    RAGPromptBuilder,
+    create_rag_engine,
+)
+from oh_my_brain.knowledge.vector_store import (
+    Document,
+    EmbeddingProvider,
+    InMemoryVectorStore,
+    LocalEmbedding,
+    MiniMaxEmbedding,
+    SearchResult,
+    VectorStore,
+    create_embedding_provider,
+    create_vector_store,
+)
 
 logger = logging.getLogger(__name__)
 

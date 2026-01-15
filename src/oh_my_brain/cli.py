@@ -19,10 +19,12 @@ app = typer.Typer(
 brain_app = typer.Typer(help="Brain server commands")
 worker_app = typer.Typer(help="Worker commands")
 dev_doc_app = typer.Typer(help="Development document commands")
+kb_app = typer.Typer(help="Knowledge base commands")
 
 app.add_typer(brain_app, name="brain")
 app.add_typer(worker_app, name="worker")
 app.add_typer(dev_doc_app, name="doc")
+app.add_typer(kb_app, name="kb")
 
 console = Console()
 
@@ -839,6 +841,317 @@ def init(
     console.print("  1. Edit dev_doc.yaml with your project requirements")
     console.print("  2. Run: oh-my-brain brain start")
     console.print("  3. Run: oh-my-brain doc run dev_doc.yaml")
+
+
+# ============================================================
+# Knowledge Base 命令
+# ============================================================
+
+
+@kb_app.command("search")
+def kb_search(
+    query: str = typer.Argument(..., help="Search query"),
+    knowledge_type: str | None = typer.Option(
+        None,
+        "--type",
+        "-t",
+        help="Filter by type: bug_fix, best_practice, pattern, anti_pattern, tip, lesson, faq",
+    ),
+    limit: int = typer.Option(10, "--limit", "-n", help="Max results"),
+    kb_dir: Path | None = typer.Option(
+        None,
+        "--dir",
+        "-d",
+        help="Knowledge base directory",
+    ),
+) -> None:
+    """搜索知识库."""
+    from oh_my_brain.knowledge import KnowledgeBase, KnowledgeType
+
+    kb_path = kb_dir or Path.home() / ".oh_my_brain" / "knowledge"
+    kb_file = kb_path / "knowledge_base.json"
+
+    if not kb_file.exists():
+        console.print("[yellow]知识库为空，请先添加知识[/yellow]")
+        return
+
+    kb = KnowledgeBase(storage_path=kb_file)
+
+    types = None
+    if knowledge_type:
+        try:
+            types = [KnowledgeType(knowledge_type)]
+        except ValueError:
+            console.print(f"[red]未知类型: {knowledge_type}[/red]")
+            return
+
+    results = kb.search(query=query, types=types, limit=limit)
+
+    if not results:
+        console.print("[yellow]未找到相关知识[/yellow]")
+        return
+
+    console.print(f"[bold blue]找到 {len(results)} 条相关知识:[/bold blue]\n")
+
+    for entry in results:
+        type_emoji = {
+            "bug_fix": "🐛",
+            "best_practice": "✨",
+            "pattern": "📐",
+            "anti_pattern": "⚠️",
+            "tip": "💡",
+            "lesson": "📖",
+            "faq": "❓",
+        }.get(entry.type.value, "📋")
+
+        console.print(f"{type_emoji} [bold]{entry.title}[/bold] ({entry.id})")
+        console.print(f"   类型: {entry.type.value}")
+        if entry.tags:
+            console.print(f"   标签: {', '.join(entry.tags)}")
+        desc = entry.description[:100] + "..." if len(entry.description) > 100 else entry.description
+        console.print(f"   {desc}")
+        console.print()
+
+
+@kb_app.command("add-bug")
+def kb_add_bug(
+    title: str = typer.Option(..., "--title", "-t", help="Bug 标题"),
+    error: str = typer.Option(..., "--error", "-e", help="错误消息"),
+    cause: str = typer.Option(..., "--cause", "-c", help="根本原因"),
+    solution: str = typer.Option(..., "--solution", "-s", help="解决方案"),
+    tags: str | None = typer.Option(None, "--tags", help="标签（逗号分隔）"),
+    project_type: str = typer.Option("", "--project-type", "-p", help="项目类型"),
+    kb_dir: Path | None = typer.Option(None, "--dir", "-d", help="知识库目录"),
+) -> None:
+    """添加 Bug 修复经验."""
+    from oh_my_brain.knowledge import BugFixEntry, KnowledgeBase
+    import uuid
+
+    kb_path = kb_dir or Path.home() / ".oh_my_brain" / "knowledge"
+    kb_path.mkdir(parents=True, exist_ok=True)
+    kb_file = kb_path / "knowledge_base.json"
+
+    kb = KnowledgeBase(storage_path=kb_file)
+
+    entry = BugFixEntry(
+        id=f"kb-bug-{uuid.uuid4().hex[:8]}",
+        title=title,
+        description=f"修复了 '{error}' 错误",
+        tags=tags.split(",") if tags else [],
+        project_type=project_type,
+        problem=error,
+        root_cause=cause,
+        solution=solution,
+        error_message=error,
+    )
+
+    kb.add(entry)
+    kb.save()
+
+    console.print(f"[green]✅ 已添加 Bug 修复经验: {entry.id}[/green]")
+
+
+@kb_app.command("add-practice")
+def kb_add_practice(
+    title: str = typer.Option(..., "--title", "-t", help="标题"),
+    description: str = typer.Option(..., "--description", "-d", help="描述"),
+    example: str | None = typer.Option(None, "--example", "-e", help="示例代码"),
+    tags: str | None = typer.Option(None, "--tags", help="标签（逗号分隔）"),
+    project_type: str = typer.Option("", "--project-type", "-p", help="项目类型"),
+    kb_dir: Path | None = typer.Option(None, "--dir", help="知识库目录"),
+) -> None:
+    """添加最佳实践."""
+    from oh_my_brain.knowledge import KnowledgeBase, KnowledgeEntry, KnowledgeType
+    import uuid
+
+    kb_path = kb_dir or Path.home() / ".oh_my_brain" / "knowledge"
+    kb_path.mkdir(parents=True, exist_ok=True)
+    kb_file = kb_path / "knowledge_base.json"
+
+    kb = KnowledgeBase(storage_path=kb_file)
+
+    entry = KnowledgeEntry(
+        id=f"kb-bp-{uuid.uuid4().hex[:8]}",
+        type=KnowledgeType.BEST_PRACTICE,
+        title=title,
+        description=description,
+        tags=tags.split(",") if tags else [],
+        project_type=project_type,
+        solution=example or "",
+    )
+
+    kb.add(entry)
+    kb.save()
+
+    console.print(f"[green]✅ 已添加最佳实践: {entry.id}[/green]")
+
+
+@kb_app.command("stats")
+def kb_stats(
+    kb_dir: Path | None = typer.Option(None, "--dir", "-d", help="知识库目录"),
+) -> None:
+    """显示知识库统计信息."""
+    from oh_my_brain.knowledge import KnowledgeBase
+
+    kb_path = kb_dir or Path.home() / ".oh_my_brain" / "knowledge"
+    kb_file = kb_path / "knowledge_base.json"
+
+    if not kb_file.exists():
+        console.print("[yellow]知识库为空[/yellow]")
+        return
+
+    kb = KnowledgeBase(storage_path=kb_file)
+    stats = kb.get_stats()
+
+    console.print("[bold blue]📊 知识库统计:[/bold blue]\n")
+    console.print(f"总条目数: {stats['total_entries']}")
+    console.print()
+
+    console.print("[bold]按类型分布:[/bold]")
+    for type_name, count in stats.get("by_type", {}).items():
+        if count > 0:
+            console.print(f"  {type_name}: {count}")
+    console.print()
+
+    if stats.get("top_tags"):
+        console.print("[bold]热门标签:[/bold]")
+        for tag, count in list(stats["top_tags"].items())[:10]:
+            console.print(f"  {tag}: {count}")
+
+
+@kb_app.command("export")
+def kb_export(
+    output: Path = typer.Argument(..., help="输出文件路径"),
+    output_format: str = typer.Option(
+        "markdown",
+        "--format",
+        "-f",
+        help="输出格式: markdown, json",
+    ),
+    kb_dir: Path | None = typer.Option(None, "--dir", "-d", help="知识库目录"),
+) -> None:
+    """导出知识库."""
+    from oh_my_brain.knowledge import KnowledgeBase
+    import json
+
+    kb_path = kb_dir or Path.home() / ".oh_my_brain" / "knowledge"
+    kb_file = kb_path / "knowledge_base.json"
+
+    if not kb_file.exists():
+        console.print("[yellow]知识库为空[/yellow]")
+        return
+
+    kb = KnowledgeBase(storage_path=kb_file)
+
+    if output_format == "markdown":
+        kb.export_markdown(output)
+        console.print(f"[green]✅ 导出为 Markdown: {output}[/green]")
+    else:
+        # JSON 导出
+        data = {
+            "entries": [e.to_dict() for e in kb._entries.values()],
+            "stats": kb.get_stats(),
+        }
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        console.print(f"[green]✅ 导出为 JSON: {output}[/green]")
+
+
+@kb_app.command("index")
+def kb_index(
+    source: Path = typer.Argument(..., help="要索引的文件或目录"),
+    recursive: bool = typer.Option(False, "--recursive", "-r", help="递归索引目录"),
+    extensions: str = typer.Option(
+        ".py,.md,.txt",
+        "--extensions",
+        "-e",
+        help="文件扩展名（逗号分隔）",
+    ),
+    kb_dir: Path | None = typer.Option(None, "--dir", "-d", help="知识库目录"),
+) -> None:
+    """索引文件到知识库（用于 RAG）."""
+    from oh_my_brain.knowledge import create_rag_engine
+
+    async def do_index():
+        kb_path = kb_dir or Path.home() / ".oh_my_brain" / "knowledge"
+        kb_path.mkdir(parents=True, exist_ok=True)
+
+        rag = await create_rag_engine(persist_dir=kb_path)
+
+        exts = [e.strip() for e in extensions.split(",")]
+        files_indexed = 0
+
+        if source.is_file():
+            files = [source]
+        elif source.is_dir():
+            if recursive:
+                files = []
+                for ext in exts:
+                    files.extend(source.rglob(f"*{ext}"))
+            else:
+                files = []
+                for ext in exts:
+                    files.extend(source.glob(f"*{ext}"))
+        else:
+            console.print(f"[red]路径不存在: {source}[/red]")
+            return
+
+        for file_path in files:
+            try:
+                count = await rag.index_file(file_path)
+                console.print(f"  ✓ {file_path.name}: {count} 块")
+                files_indexed += 1
+            except Exception as e:
+                console.print(f"  ✗ {file_path.name}: {e}")
+
+        rag.save()
+        console.print(f"\n[green]✅ 已索引 {files_indexed} 个文件[/green]")
+
+    asyncio.run(do_index())
+
+
+@kb_app.command("query")
+def kb_query(
+    query: str = typer.Argument(..., help="查询文本"),
+    top_k: int = typer.Option(5, "--top-k", "-k", help="返回数量"),
+    kb_dir: Path | None = typer.Option(None, "--dir", "-d", help="知识库目录"),
+) -> None:
+    """使用 RAG 查询知识库."""
+    from oh_my_brain.knowledge import create_rag_engine
+
+    async def do_query():
+        kb_path = kb_dir or Path.home() / ".oh_my_brain" / "knowledge"
+
+        if not kb_path.exists():
+            console.print("[yellow]知识库为空，请先索引文件[/yellow]")
+            return
+
+        rag = await create_rag_engine(persist_dir=kb_path)
+
+        if rag.document_count == 0:
+            console.print("[yellow]索引为空，请先运行 kb index[/yellow]")
+            return
+
+        context = await rag.retrieve(query, top_k=top_k)
+
+        if not context.has_context:
+            console.print("[yellow]未找到相关内容[/yellow]")
+            return
+
+        console.print(f"[bold blue]找到 {len(context.retrieved_docs)} 条相关内容:[/bold blue]\n")
+
+        for result in context.retrieved_docs:
+            score_pct = int(result.score * 100)
+            source = result.document.metadata.get("file_name", "unknown")
+
+            console.print(f"[bold]#{result.rank + 1}[/bold] 相关度: {score_pct}% | 来源: {source}")
+            content = result.document.content
+            if len(content) > 300:
+                content = content[:300] + "..."
+            console.print(f"[dim]{content}[/dim]")
+            console.print()
+
+    asyncio.run(do_query())
 
 
 def main() -> None:
