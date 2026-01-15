@@ -20,11 +20,13 @@ brain_app = typer.Typer(help="Brain server commands")
 worker_app = typer.Typer(help="Worker commands")
 dev_doc_app = typer.Typer(help="Development document commands")
 kb_app = typer.Typer(help="Knowledge base commands")
+lifecycle_app = typer.Typer(help="Lifecycle management commands")
 
 app.add_typer(brain_app, name="brain")
 app.add_typer(worker_app, name="worker")
 app.add_typer(dev_doc_app, name="doc")
 app.add_typer(kb_app, name="kb")
+app.add_typer(lifecycle_app, name="lifecycle")
 
 console = Console()
 
@@ -1152,6 +1154,389 @@ def kb_query(
             console.print()
 
     asyncio.run(do_query())
+
+
+# ============================================================
+# Lifecycle 命令
+# ============================================================
+
+
+@lifecycle_app.command("init")
+def lifecycle_init(
+    name: str = typer.Argument(..., help="项目名称"),
+    project_dir: Path = typer.Option(
+        Path("."),
+        "--dir",
+        "-d",
+        help="项目目录",
+    ),
+) -> None:
+    """初始化项目生命周期."""
+    from oh_my_brain.lifecycle import LifecycleManager, ProjectPhase
+
+    storage_dir = project_dir / ".oh_my_brain" / "lifecycle"
+    manager = LifecycleManager(name, storage_path=storage_dir)
+
+    console.print(f"[green]✅ 项目生命周期已初始化: {name}[/green]")
+    console.print(f"   当前阶段: {manager.current_phase.value}")
+    console.print(f"   存储位置: {storage_dir}")
+
+
+@lifecycle_app.command("status")
+def lifecycle_status(
+    project_dir: Path = typer.Option(
+        Path("."),
+        "--dir",
+        "-d",
+        help="项目目录",
+    ),
+) -> None:
+    """查看项目生命周期状态."""
+    import json
+
+    storage_dir = project_dir / ".oh_my_brain" / "lifecycle"
+    state_file = storage_dir / "state.json"
+
+    if not state_file.exists():
+        console.print("[yellow]未找到项目生命周期，请先运行 lifecycle init[/yellow]")
+        return
+
+    with open(state_file, encoding="utf-8") as f:
+        state = json.load(f)
+
+    from oh_my_brain.lifecycle import ProjectPhase
+
+    console.print(Panel.fit(
+        f"[bold blue]{state.get('project_name', '未知项目')}[/bold blue]",
+        title="项目生命周期状态",
+    ))
+
+    # 阶段进度表
+    table = Table(title="阶段进度")
+    table.add_column("阶段", style="cyan")
+    table.add_column("状态", justify="center")
+    table.add_column("进度", justify="right")
+
+    current_phase = ProjectPhase(state.get("current_phase", "init"))
+    completed_phases = state.get("completed_phases", [])
+    module_progress = state.get("module_progress", {})
+
+    for phase in ProjectPhase:
+        if phase.value in completed_phases:
+            status = "✅ 完成"
+            progress = "100%"
+        elif phase == current_phase:
+            status = "🔄 进行中"
+            # 计算当前阶段进度
+            total_prog = sum(module_progress.values()) if module_progress else 0
+            count = len(module_progress) if module_progress else 1
+            progress = f"{total_prog / count * 100:.0f}%" if count > 0 else "0%"
+        else:
+            status = "⏳ 待开始"
+            progress = "0%"
+
+        table.add_row(phase.value, status, progress)
+
+    console.print(table)
+
+    # 任务统计
+    tasks = state.get("task_states", {})
+    if tasks:
+        from oh_my_brain.lifecycle import TaskLifecycleState
+
+        completed = sum(1 for s in tasks.values() if s == TaskLifecycleState.COMPLETED.value)
+        failed = sum(1 for s in tasks.values() if s == TaskLifecycleState.FAILED.value)
+        in_progress = sum(1 for s in tasks.values() if s == TaskLifecycleState.IN_PROGRESS.value)
+        pending = len(tasks) - completed - failed - in_progress
+
+        console.print(f"\n[bold]任务统计:[/bold]")
+        console.print(f"  已完成: {completed} | 进行中: {in_progress} | 待处理: {pending} | 失败: {failed}")
+
+
+@lifecycle_app.command("advance")
+def lifecycle_advance(
+    target_phase: str = typer.Argument(None, help="目标阶段（留空自动推进）"),
+    force: bool = typer.Option(False, "--force", "-f", help="强制推进（跳过检查）"),
+    project_dir: Path = typer.Option(Path("."), "--dir", "-d", help="项目目录"),
+) -> None:
+    """推进到下一阶段."""
+    import json
+
+    from oh_my_brain.lifecycle import LifecycleManager, ProjectPhase
+
+    storage_dir = project_dir / ".oh_my_brain" / "lifecycle"
+    state_file = storage_dir / "state.json"
+
+    if not state_file.exists():
+        console.print("[yellow]未找到项目生命周期，请先运行 lifecycle init[/yellow]")
+        return
+
+    with open(state_file, encoding="utf-8") as f:
+        state = json.load(f)
+
+    project_name = state.get("project_name", "project")
+    manager = LifecycleManager(project_name, storage_path=storage_dir)
+
+    # 恢复状态
+    manager._state_machine._current_phase = ProjectPhase(state.get("current_phase", "init"))
+    manager._state_machine._completed_phases = set(
+        ProjectPhase(p) for p in state.get("completed_phases", [])
+    )
+
+    current = manager.current_phase
+    console.print(f"当前阶段: {current.value}")
+
+    # 确定目标阶段
+    if target_phase:
+        try:
+            target = ProjectPhase(target_phase)
+        except ValueError:
+            console.print(f"[red]无效的阶段: {target_phase}[/red]")
+            return
+    else:
+        # 自动推进到下一阶段
+        phase_order = list(ProjectPhase)
+        current_idx = phase_order.index(current)
+        if current_idx >= len(phase_order) - 1:
+            console.print("[yellow]已是最后阶段[/yellow]")
+            return
+        target = phase_order[current_idx + 1]
+
+    console.print(f"目标阶段: {target.value}")
+
+    # 尝试推进
+    success, message = manager.advance_phase(target, skip_checks=force)
+
+    if success:
+        console.print(f"[green]✅ {message}[/green]")
+    else:
+        console.print(f"[red]❌ {message}[/red]")
+        if not force:
+            console.print("[dim]使用 --force 可强制推进[/dim]")
+
+
+@lifecycle_app.command("checkpoint")
+def lifecycle_checkpoint(
+    notes: str = typer.Option("", "--notes", "-n", help="检查点备注"),
+    project_dir: Path = typer.Option(Path("."), "--dir", "-d", help="项目目录"),
+) -> None:
+    """创建检查点."""
+    import json
+
+    from oh_my_brain.lifecycle import ProjectPhase
+    from oh_my_brain.lifecycle.checkpoints import CheckpointManager
+
+    storage_dir = project_dir / ".oh_my_brain" / "lifecycle"
+    state_file = storage_dir / "state.json"
+    checkpoint_dir = storage_dir / "checkpoints"
+
+    if not state_file.exists():
+        console.print("[yellow]未找到项目生命周期[/yellow]")
+        return
+
+    with open(state_file, encoding="utf-8") as f:
+        state = json.load(f)
+
+    current_phase = ProjectPhase(state.get("current_phase", "init"))
+    manager = CheckpointManager(storage_path=checkpoint_dir)
+
+    # 创建检查点
+    entry = manager.create_checkpoint(
+        phase=current_phase,
+        context=state,
+        run_checks=True,
+        notes=notes,
+    )
+
+    if entry.is_valid:
+        console.print(f"[green]✅ 检查点已创建: {entry.id}[/green]")
+    else:
+        console.print(f"[yellow]⚠️ 检查点已创建但有问题: {entry.id}[/yellow]")
+
+    console.print(f"   检查通过: {entry.checks_passed} | 失败: {entry.checks_failed}")
+
+
+@lifecycle_app.command("checkpoints")
+def lifecycle_list_checkpoints(
+    phase: str | None = typer.Option(None, "--phase", "-p", help="过滤阶段"),
+    limit: int = typer.Option(10, "--limit", "-l", help="显示数量"),
+    project_dir: Path = typer.Option(Path("."), "--dir", "-d", help="项目目录"),
+) -> None:
+    """列出检查点."""
+    import json
+    from datetime import datetime
+
+    from oh_my_brain.lifecycle import ProjectPhase
+    from oh_my_brain.lifecycle.checkpoints import CheckpointEntry
+
+    storage_dir = project_dir / ".oh_my_brain" / "lifecycle"
+    checkpoint_dir = storage_dir / "checkpoints"
+
+    if not checkpoint_dir.exists():
+        console.print("[yellow]暂无检查点[/yellow]")
+        return
+
+    # 加载检查点
+    checkpoints = []
+    for file_path in checkpoint_dir.glob("*.json"):
+        with open(file_path, encoding="utf-8") as f:
+            data = json.load(f)
+            checkpoints.append(CheckpointEntry(
+                id=data["id"],
+                name=data["name"],
+                phase=ProjectPhase(data["phase"]),
+                timestamp=datetime.fromisoformat(data["timestamp"]),
+                checks_passed=data["checks_passed"],
+                checks_failed=data["checks_failed"],
+                notes=data.get("notes", ""),
+            ))
+
+    if phase:
+        try:
+            filter_phase = ProjectPhase(phase)
+            checkpoints = [c for c in checkpoints if c.phase == filter_phase]
+        except ValueError:
+            console.print(f"[red]无效的阶段: {phase}[/red]")
+            return
+
+    # 按时间排序
+    checkpoints.sort(key=lambda c: c.timestamp, reverse=True)
+    checkpoints = checkpoints[:limit]
+
+    if not checkpoints:
+        console.print("[yellow]暂无检查点[/yellow]")
+        return
+
+    table = Table(title="检查点列表")
+    table.add_column("ID", style="cyan")
+    table.add_column("阶段")
+    table.add_column("时间")
+    table.add_column("检查", justify="center")
+    table.add_column("状态", justify="center")
+
+    for cp in checkpoints:
+        status = "✅" if cp.is_valid else "❌"
+        checks = f"{cp.checks_passed}/{cp.checks_passed + cp.checks_failed}"
+        time_str = cp.timestamp.strftime("%m-%d %H:%M")
+
+        table.add_row(cp.id, cp.phase.value, time_str, checks, status)
+
+    console.print(table)
+
+
+@lifecycle_app.command("report")
+def lifecycle_report(
+    output: Path | None = typer.Option(None, "--output", "-o", help="输出文件"),
+    project_dir: Path = typer.Option(Path("."), "--dir", "-d", help="项目目录"),
+) -> None:
+    """生成进度报告."""
+    import json
+
+    from oh_my_brain.lifecycle import LifecycleManager, ProjectPhase
+    from oh_my_brain.lifecycle.tracker import ProgressTracker
+
+    storage_dir = project_dir / ".oh_my_brain" / "lifecycle"
+    state_file = storage_dir / "state.json"
+
+    if not state_file.exists():
+        console.print("[yellow]未找到项目生命周期[/yellow]")
+        return
+
+    with open(state_file, encoding="utf-8") as f:
+        state = json.load(f)
+
+    project_name = state.get("project_name", "project")
+    manager = LifecycleManager(project_name, storage_path=storage_dir)
+
+    # 恢复状态
+    manager._state_machine._current_phase = ProjectPhase(state.get("current_phase", "init"))
+
+    # 创建追踪器
+    tracker = ProgressTracker(manager)
+
+    # 从状态恢复任务信息
+    for task_id, task_state in state.get("task_states", {}).items():
+        from oh_my_brain.lifecycle import TaskLifecycleState
+        from oh_my_brain.lifecycle.tracker import TaskProgress
+
+        tracker._tasks[task_id] = TaskProgress(
+            task_id=task_id,
+            module_id="unknown",
+            description=task_id,
+            state=TaskLifecycleState(task_state),
+        )
+
+    # 生成报告
+    report = tracker.generate_report()
+
+    if output:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(report, encoding="utf-8")
+        console.print(f"[green]✅ 报告已保存: {output}[/green]")
+    else:
+        from rich.markdown import Markdown
+        console.print(Markdown(report))
+
+
+@lifecycle_app.command("health")
+def lifecycle_health(
+    project_dir: Path = typer.Option(Path("."), "--dir", "-d", help="项目目录"),
+) -> None:
+    """检查项目健康状态."""
+    import json
+
+    from oh_my_brain.lifecycle import LifecycleManager, ProjectPhase
+    from oh_my_brain.lifecycle.tracker import ProgressTracker
+
+    storage_dir = project_dir / ".oh_my_brain" / "lifecycle"
+    state_file = storage_dir / "state.json"
+
+    if not state_file.exists():
+        console.print("[yellow]未找到项目生命周期[/yellow]")
+        return
+
+    with open(state_file, encoding="utf-8") as f:
+        state = json.load(f)
+
+    project_name = state.get("project_name", "project")
+    manager = LifecycleManager(project_name, storage_path=storage_dir)
+    manager._state_machine._current_phase = ProjectPhase(state.get("current_phase", "init"))
+
+    tracker = ProgressTracker(manager)
+    health = tracker.get_health_status()
+
+    # 显示状态
+    status = health["status"]
+    if status == "healthy":
+        status_icon = "[green]✅ 健康[/green]"
+    elif status == "warning":
+        status_icon = "[yellow]⚠️ 警告[/yellow]"
+    else:
+        status_icon = "[red]❌ 严重[/red]"
+
+    console.print(Panel.fit(f"项目健康状态: {status_icon}"))
+
+    # 显示指标
+    metrics = health.get("metrics", {})
+    if metrics:
+        console.print("\n[bold]指标:[/bold]")
+        console.print(f"  成功率: {metrics.get('success_rate', 0)}%")
+        console.print(f"  重试率: {metrics.get('retry_rate', 0)}%")
+        console.print(f"  开发速度: {metrics.get('velocity', 0)} 任务/小时")
+        console.print(f"  进度正常: {'是' if metrics.get('on_schedule', True) else '否'}")
+
+    # 显示问题
+    issues = health.get("issues", [])
+    if issues:
+        console.print("\n[bold red]问题:[/bold red]")
+        for issue in issues:
+            console.print(f"  🔴 {issue}")
+
+    warnings = health.get("warnings", [])
+    if warnings:
+        console.print("\n[bold yellow]警告:[/bold yellow]")
+        for warning in warnings:
+            console.print(f"  🟡 {warning}")
 
 
 def main() -> None:
