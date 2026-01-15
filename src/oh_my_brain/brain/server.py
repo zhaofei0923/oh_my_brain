@@ -408,7 +408,7 @@ class BrainServer:
         while self._running:
             await asyncio.sleep(self.config.heartbeat_interval_seconds)
 
-            now = datetime.now()
+            datetime.now()
             timeout = self.config.heartbeat_timeout_seconds
 
             for worker_id, worker in list(self._workers.items()):

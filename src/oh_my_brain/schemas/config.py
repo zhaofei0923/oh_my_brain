@@ -86,6 +86,9 @@ class WorkerConfig(BaseSettings):
     # 心跳
     heartbeat_interval_seconds: int = Field(5, description="心跳间隔（秒）")
 
+    # 并发
+    max_concurrent_tasks: int = Field(1, description="最大并发任务数")
+
     # 工作目录
     workspace_dir: Path = Field(Path("./workspace"), description="工作目录")
 
@@ -95,6 +98,13 @@ class WorkerConfig(BaseSettings):
 
     # 日志
     log_level: str = Field("INFO", description="日志级别")
+
+    @property
+    def brain_address(self) -> str:
+        """获取Brain地址."""
+        if self.brain_transport == "ipc":
+            return "ipc:///tmp/oh-my-brain.sock"
+        return f"tcp://{self.brain_host}:{self.brain_port}"
 
 
 class DashboardConfig(BaseSettings):

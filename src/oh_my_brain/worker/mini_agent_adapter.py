@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from oh_my_brain.schemas.config import WorkerConfig
-from oh_my_brain.schemas.task import Task, TaskResult, TaskStatus
+from oh_my_brain.schemas.task import Task, TaskResult
 from oh_my_brain.worker.base import WorkerBase
 from oh_my_brain.worker.brain_client import BrainClient
 
@@ -170,9 +170,10 @@ class MiniAgentAdapter(WorkerBase):
             model_config = task.model_config or {}
 
             # 调用Mini-Agent
+            model_name: str = model_config.get("model_name", "claude-3-opus-20240229")
             result = await self._run_mini_agent(
                 prompt=prompt,
-                model=model_config.get("model_name", "claude-3-opus-20240229"),
+                model=model_name,
                 working_dir=context.get("project_root", "."),
             )
 

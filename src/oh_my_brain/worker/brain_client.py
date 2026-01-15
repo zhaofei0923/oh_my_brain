@@ -12,12 +12,11 @@ import zmq.asyncio
 
 from oh_my_brain.protocol.messages import (
     BrainMessage,
-    ContextRequest,
-    ContextUpdate,
+    ContextGetRequest,
+    ContextUpdateRequest,
     HeartbeatMessage,
     SafetyCheckRequest,
     TaskResultMessage,
-    TaskStatusUpdate,
     WorkerRegisterMessage,
 )
 from oh_my_brain.schemas.task import TaskResult, TaskStatus
@@ -142,10 +141,20 @@ class BrainClient:
         Returns:
             是否成功
         """
-        message = WorkerRegisterMessage(
+        import platform as plat
+        import socket
+
+        payload = WorkerRegisterMessage.Payload(
             worker_id=self._worker_id,
+            hostname=socket.gethostname(),
+            platform=plat.system().lower(),
             capabilities=capabilities or [],
             max_concurrent_tasks=max_concurrent_tasks,
+        )
+        message = WorkerRegisterMessage(
+            msg_id=self._generate_request_id(),
+            sender=self._worker_id,
+            payload=payload,
         )
 
         await self.send(message)
@@ -168,9 +177,15 @@ class BrainClient:
         Args:
             current_task_id: 当前任务ID
         """
-        message = HeartbeatMessage(
+        payload = HeartbeatMessage.Payload(
             worker_id=self._worker_id,
+            status="idle",
             current_task_id=current_task_id,
+        )
+        message = HeartbeatMessage(
+            msg_id=self._generate_request_id(),
+            sender=self._worker_id,
+            payload=payload,
         )
         await self.send(message)
 
@@ -189,12 +204,17 @@ class BrainClient:
             progress: 进度 (0-1)
             message: 状态消息
         """
-        msg = TaskStatusUpdate(
+        # 使用心跳消息传递状态（简化实现）
+        payload = HeartbeatMessage.Payload(
             worker_id=self._worker_id,
-            task_id=task_id,
-            status=status,
-            progress=progress,
-            message=message,
+            status=status.value,
+            current_task_id=task_id,
+            task_progress=progress or 0.0,
+        )
+        msg = HeartbeatMessage(
+            msg_id=self._generate_request_id(),
+            sender=self._worker_id,
+            payload=payload,
         )
         await self.send(msg)
 
@@ -209,10 +229,21 @@ class BrainClient:
             task_id: 任务ID
             result: 任务结果
         """
-        msg = TaskResultMessage(
-            worker_id=self._worker_id,
+        payload = TaskResultMessage.Payload(
             task_id=task_id,
-            result=result.model_dump(),
+            success=result.success,
+            output=result.output or "",
+            error=result.error,
+            files_modified=result.files_modified,
+            git_commits=result.git_commits,
+            tokens_used=result.tokens_used,
+            duration_seconds=result.duration_seconds,
+            model_used=result.model_used,
+        )
+        msg = TaskResultMessage(
+            msg_id=self._generate_request_id(),
+            sender=self._worker_id,
+            payload=payload,
         )
         await self.send(msg)
 
@@ -227,10 +258,15 @@ class BrainClient:
         """
         request_id = self._generate_request_id()
 
-        msg = ContextRequest(
+        # 假设请求当前任务的上下文
+        payload = ContextGetRequest.Payload(
             worker_id=self._worker_id,
-            request_id=request_id,
-            keys=keys,
+            task_id=request_id,  # 使用request_id作为临时task_id
+        )
+        msg = ContextGetRequest(
+            msg_id=request_id,
+            sender=self._worker_id,
+            payload=payload,
         )
         await self.send(msg)
 
@@ -249,10 +285,15 @@ class BrainClient:
             key: 上下文键
             value: 上下文值
         """
-        msg = ContextUpdate(
+        payload = ContextUpdateRequest.Payload(
             worker_id=self._worker_id,
-            key=key,
-            value=value,
+            task_id="",  # 全局上下文更新
+            messages=[{"key": key, "value": value}],
+        )
+        msg = ContextUpdateRequest(
+            msg_id=self._generate_request_id(),
+            sender=self._worker_id,
+            payload=payload,
         )
         await self.send(msg)
 
@@ -274,12 +315,17 @@ class BrainClient:
         """
         request_id = self._generate_request_id()
 
-        msg = SafetyCheckRequest(
+        payload = SafetyCheckRequest.Payload(
             worker_id=self._worker_id,
-            request_id=request_id,
+            task_id=request_id,
             command_type=command_type,
             command=command,
             args=args or {},
+        )
+        msg = SafetyCheckRequest(
+            msg_id=request_id,
+            sender=self._worker_id,
+            payload=payload,
         )
         await self.send(msg)
 

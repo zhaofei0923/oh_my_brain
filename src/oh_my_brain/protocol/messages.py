@@ -171,7 +171,7 @@ class TaskAssignMessage(BrainMessage):
         files_involved: list[str] = Field(default_factory=list)
         git_branch: str
         model_name: str
-        model_config: dict[str, Any]  # 模型配置
+        llm_config: dict[str, Any] = Field(default_factory=dict)  # 模型配置
         context: dict[str, Any] = Field(default_factory=dict)  # 初始上下文
 
     payload: Payload  # type: ignore[assignment]

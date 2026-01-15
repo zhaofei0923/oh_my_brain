@@ -152,8 +152,8 @@ class WorkerBase(ABC):
                 task_id=task.id,
                 result=TaskResult(
                     task_id=task.id,
-                    status=TaskStatus.FAILED,
-                    error_message=str(e),
+                    success=False,
+                    error=str(e),
                 ),
             )
 

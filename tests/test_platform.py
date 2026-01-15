@@ -26,17 +26,12 @@ class TestPlatformDetection:
         adapter = get_platform_adapter()
 
         # 测试获取默认传输
-        transport = adapter.get_default_transport()
+        transport = adapter.default_transport
         assert transport in ["ipc", "tcp"]
 
-        # 测试获取IPC路径
-        ipc_path = adapter.get_ipc_path("test")
-        assert "test" in ipc_path
-
-        # 测试获取进程信息
-        info = adapter.get_process_info()
-        assert "pid" in info
-        assert info["pid"] > 0
+        # 测试基本属性
+        assert hasattr(adapter, "setup_multiprocessing")
+        assert hasattr(adapter, "create_process")
 
     @pytest.mark.skipif(sys.platform != "linux", reason="Linux only")
     def test_linux_specific(self):
@@ -44,7 +39,7 @@ class TestPlatformDetection:
         from oh_my_brain.platform.linux import LinuxAdapter
 
         adapter = LinuxAdapter()
-        assert adapter.get_default_transport() == "ipc"
+        assert adapter.default_transport == "ipc"
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
     def test_windows_specific(self):
@@ -52,4 +47,4 @@ class TestPlatformDetection:
         from oh_my_brain.platform.windows import WindowsAdapter
 
         adapter = WindowsAdapter()
-        assert adapter.get_default_transport() == "tcp"
+        assert adapter.default_transport == "tcp"

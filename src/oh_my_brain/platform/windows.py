@@ -118,7 +118,4 @@ class WindowsAdapter(PlatformAdapter):
                 return False
 
         # 检查是否是驱动器根目录
-        if len(path_str) <= 3 and path_str.endswith(":\\"):
-            return False
-
-        return True
+        return not (len(path_str) <= 3 and path_str.endswith(":\\"))

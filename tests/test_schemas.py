@@ -13,14 +13,19 @@ class TestDevDoc:
             "project": {
                 "name": "Test Project",
                 "description": "A test project",
+                "tech_stack": {
+                    "language": "Python",
+                },
             },
             "modules": [
                 {
                     "id": "mod-1",
                     "name": "Module 1",
+                    "description": "Test module",
+                    "acceptance_criteria": "Test passed",
                     "sub_tasks": [
                         {
-                            "id": "task-1",
+                            "id": "task-001",
                             "name": "Task 1",
                             "type": "feature",
                             "description": "A task",
@@ -84,23 +89,27 @@ class TestTask:
     def test_task_creation(self):
         """测试Task创建."""
         task = Task(
-            id="task-1",
+            id="task-001",
+            module_id="mod-1",
+            sub_task_id="task-001",
             name="Test Task",
-            type=TaskType.FEATURE,
+            type=TaskType.CODING,
             description="A test task",
             requirements="Do something",
         )
 
-        assert task.id == "task-1"
+        assert task.id == "task-001"
         assert task.status == TaskStatus.PENDING
-        assert task.type == TaskType.FEATURE
+        assert task.type == TaskType.CODING
 
     def test_task_status_transitions(self):
         """测试Task状态转换."""
         task = Task(
-            id="task-1",
+            id="task-001",
+            module_id="mod-1",
+            sub_task_id="task-001",
             name="Test Task",
-            type=TaskType.FEATURE,
+            type=TaskType.CODING,
             description="A test task",
             requirements="Do something",
         )

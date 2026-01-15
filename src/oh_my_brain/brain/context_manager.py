@@ -35,10 +35,10 @@ class ContextManager:
         self._redis: Any = None  # redis.asyncio.Redis
 
         # Token计算器
+        self._encoding: Any = None
         try:
             self._encoding = tiktoken.get_encoding("cl100k_base")
         except Exception:
-            self._encoding = None
             logger.warning("tiktoken not available, using approximate token count")
 
     async def connect(self) -> None:

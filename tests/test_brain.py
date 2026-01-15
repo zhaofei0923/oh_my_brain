@@ -15,14 +15,19 @@ class TestDocParser:
             "project": {
                 "name": "Test",
                 "description": "Test project",
+                "tech_stack": {
+                    "language": "Python",
+                },
             },
             "modules": [
                 {
                     "id": "mod-1",
                     "name": "Module 1",
+                    "description": "Test module",
+                    "acceptance_criteria": "Test passed",
                     "sub_tasks": [
                         {
-                            "id": "task-1",
+                            "id": "task-001",
                             "name": "Task 1",
                             "type": "feature",
                             "description": "Do something",

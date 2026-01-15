@@ -49,7 +49,7 @@ class TaskScheduler:
         task_counter = 0
 
         # 获取模块依赖关系
-        module_deps = dev_doc.get_task_dag()
+        dev_doc.get_task_dag()
 
         for module in dev_doc.modules:
             # 计算模块内任务的依赖
@@ -117,7 +117,7 @@ class TaskScheduler:
 
         # 找出所有就绪的任务
         ready_tasks = []
-        for task_id, task in self._tasks.items():
+        for _task_id, task in self._tasks.items():
             if task.status == TaskStatus.PENDING and task.is_ready(completed_tasks):
                 ready_tasks.append(task)
 
@@ -211,7 +211,7 @@ class TaskScheduler:
 
     def get_status(self) -> dict[str, Any]:
         """获取调度器状态."""
-        status_counts = defaultdict(int)
+        status_counts: dict[str, int] = defaultdict(int)
         for task in self._tasks.values():
             status_counts[task.status.value] += 1
 
