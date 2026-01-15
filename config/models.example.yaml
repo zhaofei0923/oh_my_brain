@@ -1,0 +1,200 @@
+# AI模型配置示例
+# 复制此文件为 models.yaml 并配置您的API密钥
+
+# 默认模型（未指定时使用）
+default_model: "deepseek-chat"
+
+# 可用模型池
+models:
+  # ============================================================
+  # DeepSeek - 高性价比，适合大多数任务
+  # ============================================================
+  - id: "deepseek-chat"
+    name: "DeepSeek Chat"
+    provider: "deepseek"
+    model_name: "deepseek-chat"
+    api_key_env: "DEEPSEEK_API_KEY"  # 从环境变量读取
+    base_url: "https://api.deepseek.com"
+    # 成本估算 (每百万token，美元)
+    cost_per_million_input: 0.14
+    cost_per_million_output: 0.28
+    # 性能参数
+    max_tokens: 8192
+    context_window: 64000
+    latency_ms: 1000  # 预估延迟
+    # 能力标签
+    capabilities:
+      - "code"
+      - "analysis"
+      - "general"
+    # 是否启用
+    enabled: true
+
+  - id: "deepseek-coder"
+    name: "DeepSeek Coder"
+    provider: "deepseek"
+    model_name: "deepseek-coder"
+    api_key_env: "DEEPSEEK_API_KEY"
+    base_url: "https://api.deepseek.com"
+    cost_per_million_input: 0.14
+    cost_per_million_output: 0.28
+    max_tokens: 8192
+    context_window: 64000
+    capabilities:
+      - "code"
+      - "debug"
+    enabled: true
+
+  # ============================================================
+  # Claude - 高质量，适合复杂任务
+  # ============================================================
+  - id: "claude-sonnet"
+    name: "Claude 3.5 Sonnet"
+    provider: "anthropic"
+    model_name: "claude-3-5-sonnet-20241022"
+    api_key_env: "ANTHROPIC_API_KEY"
+    cost_per_million_input: 3.0
+    cost_per_million_output: 15.0
+    max_tokens: 8192
+    context_window: 200000
+    latency_ms: 2000
+    capabilities:
+      - "code"
+      - "analysis"
+      - "architecture"
+      - "review"
+    enabled: true
+
+  - id: "claude-opus"
+    name: "Claude 3 Opus"
+    provider: "anthropic"
+    model_name: "claude-3-opus-20240229"
+    api_key_env: "ANTHROPIC_API_KEY"
+    cost_per_million_input: 15.0
+    cost_per_million_output: 75.0
+    max_tokens: 4096
+    context_window: 200000
+    latency_ms: 5000
+    capabilities:
+      - "architecture"
+      - "complex_reasoning"
+      - "review"
+    enabled: true
+
+  # ============================================================
+  # MiniMax - 国产高性价比
+  # ============================================================
+  - id: "minimax-m2"
+    name: "MiniMax M2.1"
+    provider: "minimax"
+    model_name: "abab6.5s-chat"
+    api_key_env: "MINIMAX_API_KEY"
+    base_url: "https://api.minimax.chat/v1"
+    cost_per_million_input: 0.5
+    cost_per_million_output: 1.0
+    max_tokens: 8192
+    context_window: 245760
+    capabilities:
+      - "code"
+      - "general"
+    enabled: true
+
+  # ============================================================
+  # OpenAI - GPT系列
+  # ============================================================
+  - id: "gpt-4o"
+    name: "GPT-4o"
+    provider: "openai"
+    model_name: "gpt-4o"
+    api_key_env: "OPENAI_API_KEY"
+    # 如果需要代理
+    # base_url: "https://your-proxy.com/v1"
+    cost_per_million_input: 2.5
+    cost_per_million_output: 10.0
+    max_tokens: 4096
+    context_window: 128000
+    capabilities:
+      - "code"
+      - "analysis"
+      - "vision"
+    enabled: false  # 默认禁用，需要时启用
+
+  - id: "gpt-4o-mini"
+    name: "GPT-4o Mini"
+    provider: "openai"
+    model_name: "gpt-4o-mini"
+    api_key_env: "OPENAI_API_KEY"
+    cost_per_million_input: 0.15
+    cost_per_million_output: 0.6
+    max_tokens: 16384
+    context_window: 128000
+    capabilities:
+      - "code"
+      - "general"
+    enabled: false
+
+# ============================================================
+# 任务类型到模型的映射
+# 用户可以为不同类型的任务指定不同的模型
+# ============================================================
+task_mappings:
+  # 功能开发 - 使用性价比高的模型
+  feature:
+    primary: "deepseek-chat"
+    fallback: ["minimax-m2", "gpt-4o-mini"]
+
+  # Bug修复 - 使用代码专用模型
+  bugfix:
+    primary: "deepseek-coder"
+    fallback: ["claude-sonnet"]
+
+  # 代码重构 - 需要更好的理解能力
+  refactor:
+    primary: "claude-sonnet"
+    fallback: ["deepseek-chat"]
+
+  # 代码审查 - 需要高质量分析
+  review:
+    primary: "claude-sonnet"
+    fallback: ["claude-opus"]
+
+  # 架构设计 - 需要最强的模型
+  architecture:
+    primary: "claude-opus"
+    fallback: ["claude-sonnet"]
+
+  # 测试编写 - 普通任务
+  test:
+    primary: "deepseek-coder"
+    fallback: ["deepseek-chat"]
+
+  # 文档编写 - 普通任务
+  docs:
+    primary: "deepseek-chat"
+    fallback: ["minimax-m2"]
+
+# ============================================================
+# 模型选择策略
+# ============================================================
+selection_strategy:
+  # 优先考虑因素: cost, quality, speed, capability
+  priority: "cost"
+
+  # 成本预算 (每日美元限制，0表示不限制)
+  daily_budget: 10.0
+
+  # 质量阈值 (1-5，低于此值不使用)
+  min_quality_score: 3
+
+  # 延迟阈值 (毫秒，超过此值降低优先级)
+  max_latency_ms: 10000
+
+# ============================================================
+# 健康检查
+# ============================================================
+health_check:
+  enabled: true
+  interval_seconds: 300  # 5分钟检查一次
+  timeout_seconds: 30
+  # 连续失败次数后标记为不可用
+  failure_threshold: 3

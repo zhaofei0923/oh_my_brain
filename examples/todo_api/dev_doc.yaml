@@ -1,0 +1,286 @@
+# Todo API 示例项目
+# 使用 OH MY BRAIN 构建的开发文档示例
+
+project:
+  name: "Todo API"
+  version: "0.1.0"
+  description: |
+    一个简单的Todo REST API示例项目。
+    使用FastAPI框架，SQLite数据库。
+    包含完整的CRUD操作和Swagger文档。
+  tech_stack:
+    language: "Python"
+    framework: "FastAPI"
+    database: "SQLite"
+    other:
+      - "Pydantic"
+      - "SQLAlchemy"
+      - "Uvicorn"
+
+modules:
+  # ============================================================
+  # 模块1: 项目初始化
+  # ============================================================
+  - id: "mod-init"
+    name: "项目初始化"
+    description: "创建项目基础结构和配置"
+    priority: 1
+    dependencies: []
+    acceptance_criteria: "项目结构完整，可以启动空的FastAPI应用"
+
+    sub_tasks:
+      - id: "task-001"
+        name: "创建项目结构"
+        type: "feature"
+        description: "创建项目目录结构和基础文件"
+        estimated_minutes: 10
+        files_involved:
+          - "src/__init__.py"
+          - "src/main.py"
+          - "src/config.py"
+          - "requirements.txt"
+        requirements: |
+          创建以下目录结构:
+          ```
+          todo_api/
+          ├── src/
+          │   ├── __init__.py
+          │   ├── main.py          # FastAPI应用入口
+          │   ├── config.py        # 配置管理
+          │   ├── models/          # 数据库模型
+          │   ├── schemas/         # Pydantic模型
+          │   └── api/             # API路由
+          └── requirements.txt
+          ```
+
+          main.py 需要:
+          - 创建FastAPI应用实例
+          - 添加CORS中间件
+          - 包含基础的健康检查端点 GET /health
+
+          requirements.txt 包含:
+          - fastapi
+          - uvicorn[standard]
+          - sqlalchemy
+          - pydantic
+          - pydantic-settings
+
+  # ============================================================
+  # 模块2: 数据模型
+  # ============================================================
+  - id: "mod-models"
+    name: "数据模型"
+    description: "定义SQLAlchemy数据库模型"
+    priority: 1
+    dependencies:
+      - "mod-init"
+    acceptance_criteria: "数据库表可以正常创建"
+
+    sub_tasks:
+      - id: "task-002"
+        name: "创建数据库配置"
+        type: "feature"
+        description: "配置SQLAlchemy连接"
+        estimated_minutes: 15
+        files_involved:
+          - "src/database.py"
+        requirements: |
+          - 创建SQLite数据库连接
+          - 使用SQLAlchemy 2.0风格
+          - 创建数据库会话工厂
+          - 提供get_db依赖注入函数
+
+      - id: "task-003"
+        name: "创建Todo模型"
+        type: "feature"
+        description: "定义Todo数据库模型"
+        estimated_minutes: 15
+        files_involved:
+          - "src/models/__init__.py"
+          - "src/models/todo.py"
+        requirements: |
+          Todo模型字段:
+          - id: int (主键，自增)
+          - title: str (必填，最大100字符)
+          - description: str (可选，最大500字符)
+          - completed: bool (默认False)
+          - created_at: datetime (自动设置)
+          - updated_at: datetime (自动更新)
+
+  # ============================================================
+  # 模块3: Pydantic Schemas
+  # ============================================================
+  - id: "mod-schemas"
+    name: "Pydantic Schemas"
+    description: "定义请求/响应数据模型"
+    priority: 2
+    dependencies:
+      - "mod-models"
+    acceptance_criteria: "所有Schema定义完成并可验证"
+
+    sub_tasks:
+      - id: "task-004"
+        name: "创建Todo Schemas"
+        type: "feature"
+        description: "定义Todo相关的Pydantic模型"
+        estimated_minutes: 20
+        files_involved:
+          - "src/schemas/__init__.py"
+          - "src/schemas/todo.py"
+        requirements: |
+          需要创建以下Schema:
+
+          TodoBase:
+          - title: str
+          - description: str | None
+
+          TodoCreate(TodoBase):
+          - 用于创建Todo的请求
+
+          TodoUpdate:
+          - title: str | None
+          - description: str | None
+          - completed: bool | None
+
+          TodoResponse(TodoBase):
+          - id: int
+          - completed: bool
+          - created_at: datetime
+          - updated_at: datetime
+          - 使用 model_config = ConfigDict(from_attributes=True)
+
+          TodoListResponse:
+          - items: list[TodoResponse]
+          - total: int
+
+  # ============================================================
+  # 模块4: CRUD操作
+  # ============================================================
+  - id: "mod-crud"
+    name: "CRUD操作"
+    description: "实现数据库CRUD操作"
+    priority: 2
+    dependencies:
+      - "mod-schemas"
+    acceptance_criteria: "所有CRUD函数可正常工作"
+
+    sub_tasks:
+      - id: "task-005"
+        name: "实现Todo CRUD"
+        type: "feature"
+        description: "创建Todo的增删改查函数"
+        estimated_minutes: 30
+        files_involved:
+          - "src/crud/__init__.py"
+          - "src/crud/todo.py"
+        requirements: |
+          实现以下函数:
+
+          - get_todo(db, todo_id) -> Todo | None
+          - get_todos(db, skip, limit) -> list[Todo]
+          - get_todos_count(db) -> int
+          - create_todo(db, todo_create: TodoCreate) -> Todo
+          - update_todo(db, todo_id, todo_update: TodoUpdate) -> Todo | None
+          - delete_todo(db, todo_id) -> bool
+
+          所有函数使用SQLAlchemy 2.0 select语法
+
+  # ============================================================
+  # 模块5: API路由
+  # ============================================================
+  - id: "mod-api"
+    name: "API路由"
+    description: "实现REST API端点"
+    priority: 3
+    dependencies:
+      - "mod-crud"
+    acceptance_criteria: "所有API端点可通过Swagger测试"
+
+    sub_tasks:
+      - id: "task-006"
+        name: "创建Todo路由"
+        type: "feature"
+        description: "实现Todo REST API"
+        estimated_minutes: 30
+        files_involved:
+          - "src/api/__init__.py"
+          - "src/api/todos.py"
+        requirements: |
+          实现以下端点:
+
+          GET /api/todos
+          - 分页参数: skip, limit
+          - 返回TodoListResponse
+
+          POST /api/todos
+          - 请求体: TodoCreate
+          - 返回: TodoResponse
+          - 状态码: 201
+
+          GET /api/todos/{todo_id}
+          - 返回: TodoResponse
+          - 不存在返回404
+
+          PUT /api/todos/{todo_id}
+          - 请求体: TodoUpdate
+          - 返回: TodoResponse
+          - 不存在返回404
+
+          DELETE /api/todos/{todo_id}
+          - 返回: 204 No Content
+          - 不存在返回404
+
+      - id: "task-007"
+        name: "注册路由"
+        type: "feature"
+        description: "在main.py中注册API路由"
+        estimated_minutes: 10
+        files_involved:
+          - "src/main.py"
+        requirements: |
+          - 导入todos路由
+          - 使用include_router注册，前缀为/api
+          - 添加启动事件创建数据库表
+
+  # ============================================================
+  # 模块6: 测试
+  # ============================================================
+  - id: "mod-tests"
+    name: "单元测试"
+    description: "编写API测试"
+    priority: 4
+    dependencies:
+      - "mod-api"
+    acceptance_criteria: "所有测试通过"
+
+    sub_tasks:
+      - id: "task-008"
+        name: "创建测试配置"
+        type: "test"
+        description: "配置pytest和测试数据库"
+        estimated_minutes: 15
+        files_involved:
+          - "tests/__init__.py"
+          - "tests/conftest.py"
+        requirements: |
+          - 使用pytest
+          - 配置测试用SQLite数据库 (内存模式)
+          - 创建TestClient fixture
+          - 创建数据库会话fixture
+
+      - id: "task-009"
+        name: "编写API测试"
+        type: "test"
+        description: "测试所有API端点"
+        estimated_minutes: 30
+        files_involved:
+          - "tests/test_todos.py"
+        requirements: |
+          测试用例:
+          - test_create_todo: 创建Todo成功
+          - test_create_todo_invalid: 无效数据返回422
+          - test_get_todos: 列表返回正确
+          - test_get_todo: 获取单个正确
+          - test_get_todo_not_found: 不存在返回404
+          - test_update_todo: 更新成功
+          - test_delete_todo: 删除成功

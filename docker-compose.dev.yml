@@ -1,0 +1,64 @@
+# OH MY BRAIN 开发环境 Docker Compose
+# 用于本地开发和测试
+
+services:
+  # ============================================================
+  # Redis - 上下文存储
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: omb-dev-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    command: redis-server --appendonly yes
+
+  # ============================================================
+  # Brain服务 (开发模式 - 挂载源码)
+  # ============================================================
+  brain:
+    build:
+      context: .
+      target: runtime
+    container_name: omb-dev-brain
+    ports:
+      - "5555:5555"
+      - "8080:8080"
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config:ro
+      - ./projects:/app/projects
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=DEBUG
+      - PYTHONDONTWRITEBYTECODE=1
+    command: >
+      sh -c "pip install -e /app && oh-my-brain brain start --host 0.0.0.0 --verbose"
+    depends_on:
+      - redis
+
+  # ============================================================
+  # 单个Worker (开发模式)
+  # ============================================================
+  worker:
+    build:
+      context: .
+      target: runtime
+    container_name: omb-dev-worker
+    volumes:
+      - ./src:/app/src
+      - ./projects:/app/projects
+    environment:
+      - BRAIN_ADDRESS=tcp://brain:5555
+      - WORKER_ID=dev-worker
+      - LOG_LEVEL=DEBUG
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    command: >
+      sh -c "pip install -e /app && oh-my-brain worker start --brain tcp://brain:5555 --verbose"
+    depends_on:
+      - brain
+
+volumes:
+  redis_dev_data:

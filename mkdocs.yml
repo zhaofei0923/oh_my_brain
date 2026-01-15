@@ -1,0 +1,89 @@
+site_name: OH MY BRAIN
+site_description: 多Agent协作开发框架 - 让AI团队为你并行编程
+site_url: https://YOUR_USERNAME.github.io/oh-my-brain
+repo_url: https://github.com/YOUR_USERNAME/oh-my-brain
+repo_name: oh-my-brain
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search:
+      lang: zh
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - 首页: index.md
+  - 快速开始:
+    - 安装: getting-started/installation.md
+    - 快速入门: getting-started/quickstart.md
+  - 核心概念:
+    - 架构概述: concepts/architecture.md
+    - Brain 详解: concepts/brain.md
+    - Worker 详解: concepts/worker.md
+    - 通信协议: concepts/protocol.md
+  - 使用指南:
+    - 开发文档格式: guides/dev-doc-format.md
+    - 模型配置: guides/model-config.md
+    - 自定义Worker: guides/custom-worker.md
+    - 生产部署: guides/production.md
+  - API 参考:
+    - Brain API: api/brain.md
+    - Worker API: api/worker.md
+    - Schemas: api/schemas.md
+  - 贡献指南: contributing.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/YOUR_USERNAME/oh-my-brain
+
+copyright: Copyright &copy; 2026 OH MY BRAIN Contributors

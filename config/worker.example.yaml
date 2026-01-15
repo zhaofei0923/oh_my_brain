@@ -1,0 +1,51 @@
+# Worker配置示例
+# 复制此文件为 worker.yaml 并根据需要修改
+
+# Worker标识
+worker_id: null  # null表示自动生成
+
+# Brain服务器地址
+brain_address: "tcp://127.0.0.1:5555"
+
+# Worker能力标签
+# Brain会根据任务需求分配给具有匹配能力的Worker
+capabilities:
+  - "python"
+  - "javascript"
+  - "bash"
+  - "docker"
+
+# 最大并发任务数
+max_concurrent_tasks: 1
+
+# 心跳设置
+heartbeat_interval_seconds: 10
+
+# 工作目录
+working_directory: null  # null表示使用当前目录
+
+# Mini-Agent设置
+mini_agent:
+  # Mini-Agent可执行路径 (null表示使用pip安装的版本)
+  path: null
+  # 默认模型
+  default_model: "deepseek-chat"
+  # 非交互模式
+  non_interactive: true
+  # 日志级别
+  log_level: "INFO"
+
+# 资源限制
+resources:
+  # 最大内存使用 (MB，0表示不限制)
+  max_memory_mb: 4096
+  # 最大CPU使用率 (0-100，0表示不限制)
+  max_cpu_percent: 80
+  # 任务超时 (秒)
+  task_timeout: 3600
+
+# 日志设置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: null

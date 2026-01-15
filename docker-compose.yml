@@ -1,0 +1,110 @@
+# OH MY BRAIN Docker Compose配置
+# 快速启动Brain + Workers开发环境
+
+services:
+  # ============================================================
+  # Redis - 上下文存储
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: omb-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # Brain服务
+  # ============================================================
+  brain:
+    build:
+      context: .
+      target: brain
+    container_name: omb-brain
+    ports:
+      - "5555:5555"   # ZeroMQ端口
+      - "8080:8080"   # Dashboard端口
+    volumes:
+      - ./config:/app/config:ro
+      - ./projects:/app/projects
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================
+  # Worker 1
+  # ============================================================
+  worker1:
+    build:
+      context: .
+      target: worker
+    container_name: omb-worker-1
+    volumes:
+      - ./projects:/app/projects
+    environment:
+      - BRAIN_ADDRESS=tcp://brain:5555
+      - WORKER_ID=worker-1
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - brain
+    restart: unless-stopped
+
+  # ============================================================
+  # Worker 2
+  # ============================================================
+  worker2:
+    build:
+      context: .
+      target: worker
+    container_name: omb-worker-2
+    volumes:
+      - ./projects:/app/projects
+    environment:
+      - BRAIN_ADDRESS=tcp://brain:5555
+      - WORKER_ID=worker-2
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - brain
+    restart: unless-stopped
+
+  # ============================================================
+  # Worker 3
+  # ============================================================
+  worker3:
+    build:
+      context: .
+      target: worker
+    container_name: omb-worker-3
+    volumes:
+      - ./projects:/app/projects
+    environment:
+      - BRAIN_ADDRESS=tcp://brain:5555
+      - WORKER_ID=worker-3
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - brain
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    name: oh-my-brain-network
