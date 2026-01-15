@@ -1,6 +1,6 @@
 # 🧠 OH MY BRAIN
 
-[![CI](https://github.com/YOUR_USERNAME/oh-my-brain/workflows/CI/badge.svg)](https://github.com/YOUR_USERNAME/oh-my-brain/actions)
+[![CI](https://github.com/zhaofei0923/oh_my_brain/workflows/CI/badge.svg)](https://github.com/zhaofei0923/oh_my_brain/actions)
 [![PyPI](https://img.shields.io/pypi/v/oh-my-brain)](https://pypi.org/project/oh-my-brain/)
 [![Python](https://img.shields.io/pypi/pyversions/oh-my-brain)](https://pypi.org/project/oh-my-brain/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -166,8 +166,8 @@ oh-my-brain submit ./dev_doc.yaml
 
 ```bash
 # 克隆仓库
-git clone https://github.com/YOUR_USERNAME/oh-my-brain.git
-cd oh-my-brain
+git clone https://github.com/zhaofei0923/oh_my_brain.git
+cd oh_my_brain
 
 # 安装依赖
 uv sync --all-groups

@@ -1,8 +1,10 @@
 """任务调度器.
 
 负责任务队列管理、DAG依赖调度、负载均衡。
+支持任务持久化和断点续传。
 """
 
+import asyncio
 import logging
 from collections import defaultdict
 from typing import Any
@@ -21,9 +23,15 @@ class TaskScheduler:
     1. 维护任务队列（按优先级和依赖关系）
     2. 分配任务给Worker（负载均衡）
     3. 跟踪任务状态
+    4. 任务持久化和断点续传
     """
 
-    def __init__(self):
+    def __init__(self, persistence=None):
+        """初始化调度器.
+
+        Args:
+            persistence: 持久化后端（可选）
+        """
         # 任务存储
         self._tasks: dict[str, Task] = {}  # task_id -> Task
         self._module_tasks: dict[str, list[str]] = defaultdict(list)  # module_id -> [task_ids]
@@ -35,6 +43,102 @@ class TaskScheduler:
         # 统计
         self._completed_count = 0
         self._failed_count = 0
+
+        # 持久化
+        self._persistence = persistence
+
+    async def set_persistence(self, persistence) -> None:
+        """设置持久化后端并加载已保存的任务."""
+        from oh_my_brain.brain.task_persistence import TaskPersistence
+
+        self._persistence = persistence
+
+        if self._persistence:
+            await self._load_persisted_tasks()
+
+    async def _load_persisted_tasks(self) -> None:
+        """加载已持久化的任务."""
+        if not self._persistence:
+            return
+
+        try:
+            tasks = await self._persistence.load_all_tasks()
+            for task in tasks:
+                self._tasks[task.id] = task
+                self._module_tasks[task.module_id].append(task.id)
+
+                # 更新统计
+                if task.status == TaskStatus.COMPLETED:
+                    self._completed_count += 1
+                elif task.status == TaskStatus.FAILED:
+                    self._failed_count += 1
+
+            self._update_pending_queue()
+            logger.info(f"Loaded {len(tasks)} persisted tasks")
+
+        except Exception as e:
+            logger.error(f"Failed to load persisted tasks: {e}")
+
+    async def _persist_task(self, task: Task) -> None:
+        """持久化单个任务."""
+        if self._persistence:
+            try:
+                await self._persistence.save_task(task)
+            except Exception as e:
+                logger.error(f"Failed to persist task {task.id}: {e}")
+
+    async def save_checkpoint(self, task_id: str, checkpoint: dict[str, Any]) -> None:
+        """保存任务检查点.
+
+        Args:
+            task_id: 任务ID
+            checkpoint: 检查点数据
+        """
+        task = self._tasks.get(task_id)
+        if task:
+            task.checkpoint = checkpoint
+            if self._persistence:
+                try:
+                    await self._persistence.save_checkpoint(task_id, checkpoint)
+                except Exception as e:
+                    logger.error(f"Failed to save checkpoint for task {task_id}: {e}")
+
+    async def load_checkpoint(self, task_id: str) -> dict[str, Any] | None:
+        """加载任务检查点.
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            检查点数据
+        """
+        if self._persistence:
+            try:
+                return await self._persistence.load_checkpoint(task_id)
+            except Exception as e:
+                logger.error(f"Failed to load checkpoint for task {task_id}: {e}")
+
+        task = self._tasks.get(task_id)
+        return task.checkpoint if task else None
+
+    async def resume_incomplete_tasks(self) -> list[Task]:
+        """恢复未完成的任务.
+
+        Returns:
+            需要恢复的任务列表
+        """
+        incomplete = []
+        for task in self._tasks.values():
+            if task.status in [TaskStatus.RUNNING, TaskStatus.ASSIGNED]:
+                # 这些任务需要重新分配
+                task.status = TaskStatus.PENDING
+                task.assigned_worker = None
+                await self._persist_task(task)
+                incomplete.append(task)
+
+        self._update_pending_queue()
+        logger.info(f"Found {len(incomplete)} tasks to resume")
+        return incomplete
 
     def load_from_dev_doc(self, dev_doc: DevDoc) -> list[Task]:
         """从开发文档加载任务.
@@ -146,8 +250,25 @@ class TaskScheduler:
         if task:
             task.status = TaskStatus.ASSIGNED
             self._running_tasks[task_id] = worker_id
+            # 异步持久化（不阻塞）
+            asyncio.create_task(self._persist_task(task))
 
         return task
+
+    async def mark_started_async(
+        self,
+        task_id: str,
+        worker_id: str,
+        model: str,
+        branch: str,
+    ) -> None:
+        """标记任务开始执行（异步版本）."""
+        task = self._tasks.get(task_id)
+        if task:
+            task.mark_started(worker_id, model, branch)
+            self._running_tasks[task_id] = worker_id
+            await self._persist_task(task)
+            logger.info(f"Task {task_id} started by {worker_id}")
 
     def mark_started(
         self,
@@ -161,7 +282,20 @@ class TaskScheduler:
         if task:
             task.mark_started(worker_id, model, branch)
             self._running_tasks[task_id] = worker_id
+            # 异步持久化
+            asyncio.create_task(self._persist_task(task))
             logger.info(f"Task {task_id} started by {worker_id}")
+
+    async def mark_completed_async(self, task_id: str) -> None:
+        """标记任务完成（异步版本）."""
+        task = self._tasks.get(task_id)
+        if task:
+            task.mark_completed()
+            self._running_tasks.pop(task_id, None)
+            self._completed_count += 1
+            await self._persist_task(task)
+            logger.info(f"Task {task_id} completed")
+            self._update_pending_queue()
 
     def mark_completed(self, task_id: str) -> None:
         """标记任务完成."""
@@ -170,10 +304,22 @@ class TaskScheduler:
             task.mark_completed()
             self._running_tasks.pop(task_id, None)
             self._completed_count += 1
+            # 异步持久化
+            asyncio.create_task(self._persist_task(task))
             logger.info(f"Task {task_id} completed")
 
             # 更新队列（可能有新任务就绪）
             self._update_pending_queue()
+
+    async def mark_failed_async(self, task_id: str, error: str) -> None:
+        """标记任务失败（异步版本）."""
+        task = self._tasks.get(task_id)
+        if task:
+            task.mark_failed(error)
+            self._running_tasks.pop(task_id, None)
+            self._failed_count += 1
+            await self._persist_task(task)
+            logger.warning(f"Task {task_id} failed: {error}")
 
     def mark_failed(self, task_id: str, error: str) -> None:
         """标记任务失败."""
@@ -182,7 +328,20 @@ class TaskScheduler:
             task.mark_failed(error)
             self._running_tasks.pop(task_id, None)
             self._failed_count += 1
+            # 异步持久化
+            asyncio.create_task(self._persist_task(task))
             logger.warning(f"Task {task_id} failed: {error}")
+
+    async def requeue_task_async(self, task_id: str) -> None:
+        """重新入队任务（异步版本）."""
+        task = self._tasks.get(task_id)
+        if task and task.status in [TaskStatus.ASSIGNED, TaskStatus.RUNNING]:
+            task.status = TaskStatus.PENDING
+            task.assigned_worker = None
+            self._running_tasks.pop(task_id, None)
+            await self._persist_task(task)
+            self._update_pending_queue()
+            logger.info(f"Task {task_id} requeued")
 
     def requeue_task(self, task_id: str) -> None:
         """重新入队任务（用于Worker超时等情况）."""
@@ -191,8 +350,20 @@ class TaskScheduler:
             task.status = TaskStatus.PENDING
             task.assigned_worker = None
             self._running_tasks.pop(task_id, None)
+            # 异步持久化
+            asyncio.create_task(self._persist_task(task))
             self._update_pending_queue()
             logger.info(f"Task {task_id} requeued")
+
+    async def update_progress_async(self, task_id: str, progress: float, checkpoint: dict[str, Any] | None = None) -> None:
+        """更新任务进度（异步版本，支持检查点）."""
+        task = self._tasks.get(task_id)
+        if task:
+            task.progress = min(1.0, max(0.0, progress))
+            if checkpoint:
+                await self.save_checkpoint(task_id, checkpoint)
+            else:
+                await self._persist_task(task)
 
     def update_progress(self, task_id: str, progress: float) -> None:
         """更新任务进度."""
@@ -231,3 +402,116 @@ class TaskScheduler:
     def get_running_tasks(self) -> dict[str, str]:
         """获取正在运行的任务（task_id -> worker_id）."""
         return self._running_tasks.copy()
+
+    def add_task(
+        self,
+        module_id: str,
+        name: str,
+        description: str,
+        task_type: str = "coding",
+        requirements: list[str] | None = None,
+        files_involved: list[str] | None = None,
+        priority: int = 0,
+        depends_on: list[str] | None = None,
+    ) -> Task:
+        """手动添加任务.
+
+        Args:
+            module_id: 模块ID
+            name: 任务名称
+            description: 任务描述
+            task_type: 任务类型
+            requirements: 需求列表
+            files_involved: 涉及的文件
+            priority: 优先级
+            depends_on: 依赖的任务ID列表
+
+        Returns:
+            创建的任务
+        """
+        import uuid
+
+        # 映射任务类型
+        type_mapping = {
+            "coding": TaskType.CODING,
+            "development": TaskType.CODING,
+            "testing": TaskType.TESTING,
+            "refactor": TaskType.REFACTOR,
+            "docs": TaskType.DOCS,
+            "review": TaskType.REVIEW,
+        }
+        task_type_enum = type_mapping.get(task_type.lower(), TaskType.CODING)
+
+        task_id = f"task-{uuid.uuid4().hex[:8]}"
+        task = Task(
+            id=task_id,
+            module_id=module_id,
+            name=name,
+            type=task_type_enum,
+            description=description,
+            requirements=requirements or [],
+            files_involved=files_involved or [],
+            priority=priority,
+            dependencies=depends_on or [],
+        )
+
+        self._tasks[task_id] = task
+        self._module_tasks[module_id].append(task_id)
+
+        # 异步持久化
+        asyncio.create_task(self._persist_task(task))
+
+        self._update_pending_queue()
+        logger.info(f"Task {task_id} added: {name}")
+
+        return task
+
+    async def add_task_async(
+        self,
+        module_id: str,
+        name: str,
+        description: str,
+        task_type: str = "coding",
+        requirements: list[str] | None = None,
+        files_involved: list[str] | None = None,
+        priority: int = 0,
+        depends_on: list[str] | None = None,
+    ) -> Task:
+        """手动添加任务（异步版本）."""
+        task = self.add_task(
+            module_id=module_id,
+            name=name,
+            description=description,
+            task_type=task_type,
+            requirements=requirements,
+            files_involved=files_involved,
+            priority=priority,
+            depends_on=depends_on,
+        )
+        await self._persist_task(task)
+        return task
+
+    def mark_cancelled(self, task_id: str) -> None:
+        """取消任务.
+
+        Args:
+            task_id: 任务ID
+        """
+        task = self._tasks.get(task_id)
+        if task:
+            task.status = TaskStatus.CANCELLED
+            self._running_tasks.pop(task_id, None)
+            # 异步持久化
+            asyncio.create_task(self._persist_task(task))
+            self._update_pending_queue()
+            logger.info(f"Task {task_id} cancelled")
+
+    async def mark_cancelled_async(self, task_id: str) -> None:
+        """取消任务（异步版本）."""
+        task = self._tasks.get(task_id)
+        if task:
+            task.status = TaskStatus.CANCELLED
+            self._running_tasks.pop(task_id, None)
+            await self._persist_task(task)
+            self._update_pending_queue()
+            logger.info(f"Task {task_id} cancelled")

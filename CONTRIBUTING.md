@@ -9,8 +9,8 @@
 1. **Fork 并克隆仓库**
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/oh-my-brain.git
-cd oh-my-brain
+git clone https://github.com/zhaofei0923/oh_my_brain.git
+cd oh_my_brain
 ```
 
 2. **安装 uv（推荐的包管理器）**

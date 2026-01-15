@@ -1,12 +1,21 @@
 """Mini-Agent适配器.
 
 适配Mini-Agent的工具系统，添加安全检查和上下文管理。
+
+支持两种模式：
+1. 导入模式：直接导入 mini_agent 模块（需要安装 mini-agent 包）
+2. subprocess模式：通过CLI调用 mini-agent
+3. 内置模式：使用内置的简化LLM客户端（不依赖 mini-agent）
 """
 
 import asyncio
+import json
 import logging
+import os
+import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -17,6 +26,21 @@ from oh_my_brain.worker.base import WorkerBase
 from oh_my_brain.worker.brain_client import BrainClient
 
 logger = logging.getLogger(__name__)
+
+# Mini-Agent 是否可用
+MINI_AGENT_AVAILABLE = False
+try:
+    from mini_agent.agent import Agent as MiniAgent
+    from mini_agent.llm import LLMClient as MiniAgentLLMClient
+    from mini_agent.schema import Message as MiniAgentMessage
+    from mini_agent.tools.base import Tool as MiniAgentTool, ToolResult as MiniAgentToolResult
+    MINI_AGENT_AVAILABLE = True
+except ImportError:
+    MiniAgent = None
+    MiniAgentLLMClient = None
+    MiniAgentMessage = None
+    MiniAgentTool = None
+    MiniAgentToolResult = None
 
 
 class ToolInterceptor:
@@ -247,6 +271,45 @@ class MiniAgentAdapter(WorkerBase):
 
         return "\n".join(prompt_parts)
 
+    def _parse_modified_files(self, output: str) -> list[str]:
+        """从 Mini-Agent 输出中解析修改的文件.
+
+        Args:
+            output: Mini-Agent 输出
+
+        Returns:
+            修改的文件路径列表
+        """
+        import re
+
+        files_modified = []
+
+        # 匹配常见的文件操作模式
+        patterns = [
+            # Created/Modified file: xxx
+            r"(?:Created|Modified|Updated|Wrote|Writing)\s+(?:file[:\s]+)?([^\s\n]+\.[a-zA-Z0-9]+)",
+            # ✓ file.py
+            r"[✓✔]\s+([^\s\n]+\.[a-zA-Z0-9]+)",
+            # File: path/to/file.py
+            r"File:\s*([^\s\n]+\.[a-zA-Z0-9]+)",
+            # edit_file tool usage patterns
+            r"edit_file.*?path[\"']?\s*[:\s]+\s*[\"']?([^\s\n\"']+)[\"']?",
+            # create_file tool usage patterns
+            r"create_file.*?path[\"']?\s*[:\s]+\s*[\"']?([^\s\n\"']+)[\"']?",
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, output, re.IGNORECASE)
+            for match in matches:
+                # 清理路径
+                path = match.strip().strip("'\"")
+                if path and path not in files_modified:
+                    # 过滤掉明显不是文件的匹配
+                    if not path.startswith("http") and "." in path:
+                        files_modified.append(path)
+
+        return files_modified
+
     async def _run_mini_agent(
         self,
         prompt: str,
@@ -302,10 +365,12 @@ class MiniAgentAdapter(WorkerBase):
             stdout, stderr = await process.communicate()
 
             if process.returncode == 0:
+                # 解析输出获取修改的文件
+                files_modified = self._parse_modified_files(stdout.decode())
                 return {
                     "success": True,
                     "output": stdout.decode(),
-                    "files_modified": [],  # TODO: 解析输出获取修改的文件
+                    "files_modified": files_modified,
                 }
             else:
                 return {
@@ -327,45 +392,171 @@ class MiniAgentAdapter(WorkerBase):
     ) -> dict[str, Any]:
         """通过导入运行Mini-Agent.
 
-        尝试导入mini_agent模块并直接调用。
-        这需要mini_agent已安装在当前环境中。
+        直接导入mini_agent模块并调用Agent执行任务。
+        需要mini_agent已安装在当前环境中。
         """
+        if not MINI_AGENT_AVAILABLE:
+            return {
+                "success": False,
+                "error": "mini_agent not installed. Install with: pip install 'oh-my-brain[mini-agent]'",
+            }
+
         try:
-            # 尝试导入 - 具体实现取决于mini-agent的API
-            # 这里提供一个通用的接口适配
+            # 配置 Mini-Agent
+            api_key = os.getenv("MINIMAX_API_KEY") or os.getenv("OPENAI_API_KEY")
+            api_base = os.getenv("MINIMAX_API_BASE", "https://api.minimax.io")
 
-            # 检查是否安装了mini-agent
-            import importlib.util
-
-            spec = importlib.util.find_spec("mini_agent")
-            if spec is None:
+            if not api_key:
                 return {
                     "success": False,
-                    "error": "mini_agent not installed. Install with: pip install mini-agent",
+                    "error": "No API key found. Set MINIMAX_API_KEY or OPENAI_API_KEY environment variable.",
                 }
 
-            # TODO: 根据mini-agent的实际API实现
-            # 当前返回占位符结果
-            logger.warning("Direct mini-agent import not yet implemented")
+            # 创建 LLM 客户端
+            llm_client = MiniAgentLLMClient(
+                api_key=api_key,
+                api_base=api_base,
+                model=model,
+            )
+
+            # 加载默认工具
+            tools = await self._load_mini_agent_tools(working_dir)
+
+            # 创建系统提示
+            system_prompt = self._build_system_prompt(working_dir)
+
+            # 创建 Agent
+            agent = MiniAgent(
+                llm_client=llm_client,
+                system_prompt=system_prompt,
+                tools=tools,
+                max_steps=50,
+                workspace_dir=working_dir,
+            )
+
+            # 添加用户任务
+            agent.add_user_message(prompt)
+
+            # 执行任务
+            logger.info("Starting Mini-Agent execution...")
+            result = await agent.run()
+
+            # 解析输出，提取修改的文件
+            files_modified = self._parse_modified_files(agent.get_history())
+
             return {
-                "success": False,
-                "error": "Direct import not implemented, use subprocess mode",
+                "success": True,
+                "output": result,
+                "files_modified": files_modified,
             }
 
-        except ImportError as e:
+        except Exception as e:
+            logger.error(f"Mini-Agent execution failed: {e}")
             return {
                 "success": False,
-                "error": f"Failed to import mini_agent: {e}",
+                "error": str(e),
             }
+
+    async def _load_mini_agent_tools(self, working_dir: str) -> list:
+        """加载 Mini-Agent 工具并注入安全检查.
+
+        Args:
+            working_dir: 工作目录
+
+        Returns:
+            工具列表
+        """
+        if not MINI_AGENT_AVAILABLE:
+            return []
+
+        tools = []
+
+        try:
+            # 导入默认工具
+            from mini_agent.tools.bash import BashTool
+            from mini_agent.tools.file import (
+                CreateFileTool,
+                EditFileTool,
+                ReadFileTool,
+            )
+
+            # 创建安全包装的工具
+            bash_tool = SafeBashTool(
+                brain_client=self._brain_client,
+                working_dir=working_dir,
+            )
+            tools.append(bash_tool)
+
+            # 文件工具
+            read_file = ReadFileTool(workspace_dir=working_dir)
+            create_file = SafeCreateFileTool(
+                brain_client=self._brain_client,
+                working_dir=working_dir,
+            )
+            edit_file = SafeEditFileTool(
+                brain_client=self._brain_client,
+                working_dir=working_dir,
+            )
+
+            tools.extend([read_file, create_file, edit_file])
+
+            logger.info(f"Loaded {len(tools)} Mini-Agent tools")
+
+        except ImportError as e:
+            logger.warning(f"Failed to import Mini-Agent tools: {e}")
+            # 返回空列表，使用 Mini-Agent 的默认工具
+
+        return tools
+
+    def _build_system_prompt(self, working_dir: str) -> str:
+        """构建系统提示."""
+        return f"""You are an AI coding assistant working on a software development task.
+
+## Current Workspace
+You are working in: `{working_dir}`
+All file paths should be relative to this directory.
+
+## Guidelines
+1. Read existing files before making changes to understand the codebase
+2. Write clean, maintainable code following best practices
+3. Test your changes when possible
+4. Commit your work with clear commit messages
+5. If you encounter errors, debug and fix them
+
+## Safety Rules
+- Do not delete system files or directories
+- Do not run destructive commands without explicit approval
+- Always verify file paths before writing
+"""
+
+    def _parse_modified_files(self, history: list) -> list[str]:
+        """从历史记录中解析修改的文件."""
+        files = set()
+
+        for msg in history:
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    func_name = tool_call.function.name
+                    args = tool_call.function.arguments
+
+                    # 检测文件操作
+                    if func_name in ('create_file', 'edit_file', 'write_file'):
+                        if 'file_path' in args:
+                            files.add(args['file_path'])
+                        elif 'path' in args:
+                            files.add(args['path'])
+
+        return list(files)
 
     async def setup_tool_interceptors(self) -> None:
         """设置工具拦截器.
 
         注入安全检查到Mini-Agent的工具中。
+        工具拦截器在 _load_mini_agent_tools 中自动设置。
         """
-        # TODO: 实现工具拦截
-        # 需要根据mini-agent的工具系统实现
-        pass
+        logger.info("Tool interceptors are configured during tool loading")
+        # 拦截器通过安全工具包装类实现
+        # 见: SafeBashTool, SafeCreateFileTool, SafeEditFileTool
 
 
 class SimpleMiniAgentWorker(MiniAgentAdapter):
@@ -409,3 +600,301 @@ class SimpleMiniAgentWorker(MiniAgentAdapter):
                 "success": False,
                 "error": str(e),
             }
+
+
+# ============================================================
+# 安全工具包装类
+# ============================================================
+
+
+class SafeBashTool:
+    """安全的 Bash 工具包装.
+
+    包装 Mini-Agent 的 BashTool，添加 Brain 安全检查。
+    """
+
+    name = "bash"
+    description = "Execute a bash command in the workspace. Commands are subject to safety review."
+
+    def __init__(self, brain_client: BrainClient, working_dir: str):
+        self._brain_client = brain_client
+        self._working_dir = working_dir
+        self._original_tool = None
+
+        # 尝试加载原始工具
+        if MINI_AGENT_AVAILABLE:
+            try:
+                from mini_agent.tools.bash import BashTool
+                self._original_tool = BashTool(workspace_dir=working_dir)
+            except ImportError:
+                pass
+
+    @property
+    def parameters(self) -> dict:
+        """工具参数定义."""
+        return {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The bash command to execute",
+                }
+            },
+            "required": ["command"],
+        }
+
+    async def execute(self, command: str) -> Any:
+        """执行 bash 命令（带安全检查）."""
+        # 请求安全检查
+        try:
+            approved, reason = await self._brain_client.request_safety_check(
+                command_type="bash",
+                command=command,
+            )
+
+            if not approved:
+                logger.warning(f"Bash command rejected: {reason}")
+                if MINI_AGENT_AVAILABLE:
+                    return MiniAgentToolResult(
+                        success=False,
+                        content="",
+                        error=f"Command rejected by safety check: {reason}",
+                    )
+                return {"success": False, "error": f"Command rejected: {reason}"}
+
+        except Exception as e:
+            logger.warning(f"Safety check failed, proceeding with caution: {e}")
+
+        # 使用原始工具执行
+        if self._original_tool:
+            return await self._original_tool.execute(command=command)
+
+        # 如果没有原始工具，直接执行
+        return await self._execute_command(command)
+
+    async def _execute_command(self, command: str) -> Any:
+        """直接执行命令."""
+        try:
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=self._working_dir,
+            )
+            stdout, stderr = await process.communicate()
+
+            output = stdout.decode() if stdout else ""
+            error = stderr.decode() if stderr else ""
+
+            if process.returncode == 0:
+                if MINI_AGENT_AVAILABLE:
+                    return MiniAgentToolResult(success=True, content=output)
+                return {"success": True, "output": output}
+            else:
+                if MINI_AGENT_AVAILABLE:
+                    return MiniAgentToolResult(
+                        success=False,
+                        content=output,
+                        error=error or f"Command failed with code {process.returncode}",
+                    )
+                return {"success": False, "output": output, "error": error}
+
+        except Exception as e:
+            if MINI_AGENT_AVAILABLE:
+                return MiniAgentToolResult(success=False, content="", error=str(e))
+            return {"success": False, "error": str(e)}
+
+
+class SafeCreateFileTool:
+    """安全的文件创建工具包装."""
+
+    name = "create_file"
+    description = "Create a new file with the specified content."
+
+    def __init__(self, brain_client: BrainClient, working_dir: str):
+        self._brain_client = brain_client
+        self._working_dir = working_dir
+        self._original_tool = None
+
+        if MINI_AGENT_AVAILABLE:
+            try:
+                from mini_agent.tools.file import CreateFileTool
+                self._original_tool = CreateFileTool(workspace_dir=working_dir)
+            except ImportError:
+                pass
+
+    @property
+    def parameters(self) -> dict:
+        """工具参数定义."""
+        return {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to create",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content to write to the file",
+                },
+            },
+            "required": ["file_path", "content"],
+        }
+
+    async def execute(self, file_path: str, content: str) -> Any:
+        """创建文件（带安全检查）."""
+        # 请求安全检查
+        try:
+            approved, reason = await self._brain_client.request_safety_check(
+                command_type="write",
+                command=file_path,
+                args={"content_length": len(content)},
+            )
+
+            if not approved:
+                logger.warning(f"File creation rejected: {reason}")
+                if MINI_AGENT_AVAILABLE:
+                    return MiniAgentToolResult(
+                        success=False,
+                        content="",
+                        error=f"File creation rejected: {reason}",
+                    )
+                return {"success": False, "error": f"File creation rejected: {reason}"}
+
+        except Exception as e:
+            logger.warning(f"Safety check failed, proceeding with caution: {e}")
+
+        # 使用原始工具
+        if self._original_tool:
+            return await self._original_tool.execute(file_path=file_path, content=content)
+
+        # 直接创建文件
+        return await self._create_file(file_path, content)
+
+    async def _create_file(self, file_path: str, content: str) -> Any:
+        """直接创建文件."""
+        try:
+            full_path = Path(self._working_dir) / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text(content, encoding="utf-8")
+
+            if MINI_AGENT_AVAILABLE:
+                return MiniAgentToolResult(
+                    success=True,
+                    content=f"File created: {file_path}",
+                )
+            return {"success": True, "message": f"File created: {file_path}"}
+
+        except Exception as e:
+            if MINI_AGENT_AVAILABLE:
+                return MiniAgentToolResult(success=False, content="", error=str(e))
+            return {"success": False, "error": str(e)}
+
+
+class SafeEditFileTool:
+    """安全的文件编辑工具包装."""
+
+    name = "edit_file"
+    description = "Edit an existing file by replacing old text with new text."
+
+    def __init__(self, brain_client: BrainClient, working_dir: str):
+        self._brain_client = brain_client
+        self._working_dir = working_dir
+        self._original_tool = None
+
+        if MINI_AGENT_AVAILABLE:
+            try:
+                from mini_agent.tools.file import EditFileTool
+                self._original_tool = EditFileTool(workspace_dir=working_dir)
+            except ImportError:
+                pass
+
+    @property
+    def parameters(self) -> dict:
+        """工具参数定义."""
+        return {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to edit",
+                },
+                "old_text": {
+                    "type": "string",
+                    "description": "Text to be replaced",
+                },
+                "new_text": {
+                    "type": "string",
+                    "description": "New text to replace with",
+                },
+            },
+            "required": ["file_path", "old_text", "new_text"],
+        }
+
+    async def execute(self, file_path: str, old_text: str, new_text: str) -> Any:
+        """编辑文件（带安全检查）."""
+        # 请求安全检查
+        try:
+            approved, reason = await self._brain_client.request_safety_check(
+                command_type="edit",
+                command=file_path,
+                args={"old_text_length": len(old_text), "new_text_length": len(new_text)},
+            )
+
+            if not approved:
+                logger.warning(f"File edit rejected: {reason}")
+                if MINI_AGENT_AVAILABLE:
+                    return MiniAgentToolResult(
+                        success=False,
+                        content="",
+                        error=f"File edit rejected: {reason}",
+                    )
+                return {"success": False, "error": f"File edit rejected: {reason}"}
+
+        except Exception as e:
+            logger.warning(f"Safety check failed, proceeding with caution: {e}")
+
+        # 使用原始工具
+        if self._original_tool:
+            return await self._original_tool.execute(
+                file_path=file_path,
+                old_text=old_text,
+                new_text=new_text,
+            )
+
+        # 直接编辑文件
+        return await self._edit_file(file_path, old_text, new_text)
+
+    async def _edit_file(self, file_path: str, old_text: str, new_text: str) -> Any:
+        """直接编辑文件."""
+        try:
+            full_path = Path(self._working_dir) / file_path
+
+            if not full_path.exists():
+                error = f"File not found: {file_path}"
+                if MINI_AGENT_AVAILABLE:
+                    return MiniAgentToolResult(success=False, content="", error=error)
+                return {"success": False, "error": error}
+
+            content = full_path.read_text(encoding="utf-8")
+
+            if old_text not in content:
+                error = "Old text not found in file"
+                if MINI_AGENT_AVAILABLE:
+                    return MiniAgentToolResult(success=False, content="", error=error)
+                return {"success": False, "error": error}
+
+            new_content = content.replace(old_text, new_text, 1)
+            full_path.write_text(new_content, encoding="utf-8")
+
+            if MINI_AGENT_AVAILABLE:
+                return MiniAgentToolResult(
+                    success=True,
+                    content=f"File edited: {file_path}",
+                )
+            return {"success": True, "message": f"File edited: {file_path}"}
+
+        except Exception as e:
+            if MINI_AGENT_AVAILABLE:
+                return MiniAgentToolResult(success=False, content="", error=str(e))
+            return {"success": False, "error": str(e)}

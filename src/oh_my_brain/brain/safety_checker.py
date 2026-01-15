@@ -3,12 +3,59 @@
 对Worker执行的命令进行安全审核。
 """
 
+import asyncio
 import logging
 import re
-from dataclasses import dataclass
-from typing import Any
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+
+class ApprovalStatus(Enum):
+    """审批状态."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    TIMEOUT = "timeout"
+
+
+@dataclass
+class ApprovalRequest:
+    """审批请求."""
+
+    id: str
+    command_type: str
+    command: str
+    args: dict[str, Any]
+    worker_id: str
+    task_id: str
+    reason: str
+    status: ApprovalStatus = ApprovalStatus.PENDING
+    created_at: datetime = field(default_factory=datetime.now)
+    resolved_at: datetime | None = None
+    resolved_by: str | None = None
+    comment: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """转换为字典."""
+        return {
+            "id": self.id,
+            "command_type": self.command_type,
+            "command": self.command,
+            "args": self.args,
+            "worker_id": self.worker_id,
+            "task_id": self.task_id,
+            "reason": self.reason,
+            "status": self.status.value,
+            "created_at": self.created_at.isoformat(),
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "resolved_by": self.resolved_by,
+            "comment": self.comment,
+        }
 
 
 @dataclass
@@ -18,6 +65,8 @@ class SafetyCheckResult:
     approved: bool
     reason: str = ""
     modified_command: str | None = None
+    requires_approval: bool = False
+    approval_request_id: str | None = None
 
 
 class SafetyChecker:
@@ -192,3 +241,299 @@ class SafetyChecker:
     def set_enabled(self, enabled: bool) -> None:
         """设置是否启用."""
         self._enabled = enabled
+
+
+class ApprovalManager:
+    """人工审批管理器.
+
+    处理需要人工审批的操作，支持异步等待审批结果。
+    """
+
+    def __init__(
+        self,
+        timeout_seconds: int = 3600,  # 默认1小时超时
+        notify_callback: Callable[[ApprovalRequest], None] | None = None,
+    ):
+        self._timeout_seconds = timeout_seconds
+        self._notify_callback = notify_callback
+        self._pending_requests: dict[str, ApprovalRequest] = {}
+        self._approval_events: dict[str, asyncio.Event] = {}
+        self._lock = asyncio.Lock()
+
+    async def request_approval(
+        self,
+        command_type: str,
+        command: str,
+        args: dict[str, Any],
+        worker_id: str,
+        task_id: str,
+        reason: str,
+    ) -> ApprovalRequest:
+        """创建审批请求并等待结果.
+
+        Args:
+            command_type: 命令类型
+            command: 命令内容
+            args: 命令参数
+            worker_id: 发起请求的 Worker ID
+            task_id: 相关任务 ID
+            reason: 需要审批的原因
+
+        Returns:
+            审批请求（包含最终状态）
+        """
+        request_id = str(uuid.uuid4())
+        request = ApprovalRequest(
+            id=request_id,
+            command_type=command_type,
+            command=command,
+            args=args,
+            worker_id=worker_id,
+            task_id=task_id,
+            reason=reason,
+        )
+
+        async with self._lock:
+            self._pending_requests[request_id] = request
+            self._approval_events[request_id] = asyncio.Event()
+
+        # 通知回调（用于推送到 Dashboard 等）
+        if self._notify_callback:
+            try:
+                self._notify_callback(request)
+            except Exception as e:
+                logger.error(f"Failed to notify approval request: {e}")
+
+        logger.info(
+            f"Approval request created: {request_id} for {command_type} "
+            f"from worker {worker_id}"
+        )
+
+        # 等待审批结果或超时
+        try:
+            await asyncio.wait_for(
+                self._approval_events[request_id].wait(),
+                timeout=self._timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            async with self._lock:
+                if request_id in self._pending_requests:
+                    request.status = ApprovalStatus.TIMEOUT
+                    request.resolved_at = datetime.now()
+                    del self._pending_requests[request_id]
+            logger.warning(f"Approval request timed out: {request_id}")
+
+        # 清理
+        async with self._lock:
+            if request_id in self._approval_events:
+                del self._approval_events[request_id]
+
+        return request
+
+    async def approve(
+        self,
+        request_id: str,
+        approved_by: str = "admin",
+        comment: str = "",
+    ) -> bool:
+        """批准请求.
+
+        Args:
+            request_id: 请求 ID
+            approved_by: 审批人
+            comment: 备注
+
+        Returns:
+            是否成功
+        """
+        async with self._lock:
+            if request_id not in self._pending_requests:
+                return False
+
+            request = self._pending_requests[request_id]
+            request.status = ApprovalStatus.APPROVED
+            request.resolved_at = datetime.now()
+            request.resolved_by = approved_by
+            request.comment = comment
+
+            del self._pending_requests[request_id]
+
+            if request_id in self._approval_events:
+                self._approval_events[request_id].set()
+
+        logger.info(f"Approval request approved: {request_id} by {approved_by}")
+        return True
+
+    async def reject(
+        self,
+        request_id: str,
+        rejected_by: str = "admin",
+        comment: str = "",
+    ) -> bool:
+        """拒绝请求.
+
+        Args:
+            request_id: 请求 ID
+            rejected_by: 拒绝人
+            comment: 拒绝原因
+
+        Returns:
+            是否成功
+        """
+        async with self._lock:
+            if request_id not in self._pending_requests:
+                return False
+
+            request = self._pending_requests[request_id]
+            request.status = ApprovalStatus.REJECTED
+            request.resolved_at = datetime.now()
+            request.resolved_by = rejected_by
+            request.comment = comment
+
+            del self._pending_requests[request_id]
+
+            if request_id in self._approval_events:
+                self._approval_events[request_id].set()
+
+        logger.info(f"Approval request rejected: {request_id} by {rejected_by}")
+        return True
+
+    def get_pending_requests(self) -> list[ApprovalRequest]:
+        """获取所有待审批请求."""
+        return list(self._pending_requests.values())
+
+    def get_request(self, request_id: str) -> ApprovalRequest | None:
+        """获取指定请求."""
+        return self._pending_requests.get(request_id)
+
+    def set_notify_callback(
+        self, callback: Callable[[ApprovalRequest], None]
+    ) -> None:
+        """设置通知回调."""
+        self._notify_callback = callback
+
+
+class SafetyCheckerWithApproval(SafetyChecker):
+    """带审批功能的安全检查器.
+
+    扩展基础安全检查器，添加人工审批流程支持。
+    对于部分危险但可能合法的操作，可以请求人工审批而非直接拒绝。
+    """
+
+    # 需要人工审批的模式（不是直接危险，但需要确认）
+    APPROVAL_REQUIRED_PATTERNS = [
+        r"pip\s+install\s+--upgrade",
+        r"npm\s+install\s+-g",
+        r"docker\s+run",
+        r"docker\s+exec",
+        r"git\s+push\s+--force",
+        r"git\s+reset\s+--hard",
+        r"DROP\s+TABLE",
+        r"DELETE\s+FROM",
+        r"TRUNCATE\s+TABLE",
+    ]
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        dangerous_commands: list[str] | None = None,
+        protected_paths: list[str] | None = None,
+        approval_manager: ApprovalManager | None = None,
+    ):
+        super().__init__(enabled, dangerous_commands, protected_paths)
+        self._approval_manager = approval_manager or ApprovalManager()
+        self._approval_patterns = [
+            re.compile(p, re.IGNORECASE)
+            for p in self.APPROVAL_REQUIRED_PATTERNS
+        ]
+
+    def check(
+        self,
+        command_type: str,
+        command: str,
+        args: dict[str, Any] | None = None,
+    ) -> SafetyCheckResult:
+        """执行安全检查.
+
+        先进行基础安全检查，通过后再检查是否需要人工审批。
+        """
+        # 首先进行基础安全检查
+        result = super().check(command_type, command, args)
+
+        # 如果基础检查未通过，直接返回
+        if not result.approved:
+            return result
+
+        # 检查是否需要人工审批
+        for pattern in self._approval_patterns:
+            if pattern.search(command):
+                return SafetyCheckResult(
+                    approved=False,
+                    reason=f"This operation requires human approval: {pattern.pattern}",
+                    requires_approval=True,
+                )
+
+        return result
+
+    async def check_with_approval(
+        self,
+        command_type: str,
+        command: str,
+        args: dict[str, Any] | None = None,
+        worker_id: str = "unknown",
+        task_id: str = "unknown",
+    ) -> SafetyCheckResult:
+        """执行安全检查，如需要则等待人工审批.
+
+        Args:
+            command_type: 命令类型
+            command: 命令内容
+            args: 额外参数
+            worker_id: Worker ID
+            task_id: 任务 ID
+
+        Returns:
+            检查结果
+        """
+        result = self.check(command_type, command, args)
+
+        if result.requires_approval and self._approval_manager:
+            # 创建审批请求并等待
+            approval = await self._approval_manager.request_approval(
+                command_type=command_type,
+                command=command,
+                args=args or {},
+                worker_id=worker_id,
+                task_id=task_id,
+                reason=result.reason,
+            )
+
+            if approval.status == ApprovalStatus.APPROVED:
+                return SafetyCheckResult(
+                    approved=True,
+                    reason=f"Approved by {approval.resolved_by}: {approval.comment}",
+                    approval_request_id=approval.id,
+                )
+            elif approval.status == ApprovalStatus.TIMEOUT:
+                return SafetyCheckResult(
+                    approved=False,
+                    reason="Approval request timed out",
+                    approval_request_id=approval.id,
+                )
+            else:
+                return SafetyCheckResult(
+                    approved=False,
+                    reason=f"Rejected by {approval.resolved_by}: {approval.comment}",
+                    approval_request_id=approval.id,
+                )
+
+        return result
+
+    @property
+    def approval_manager(self) -> ApprovalManager:
+        """获取审批管理器."""
+        return self._approval_manager
+
+    def add_approval_pattern(self, pattern: str) -> None:
+        """添加需要审批的模式."""
+        self._approval_patterns.append(re.compile(pattern, re.IGNORECASE))

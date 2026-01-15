@@ -1,8 +1,8 @@
 site_name: OH MY BRAIN
 site_description: 多Agent协作开发框架 - 让AI团队为你并行编程
-site_url: https://YOUR_USERNAME.github.io/oh-my-brain
-repo_url: https://github.com/YOUR_USERNAME/oh-my-brain
-repo_name: oh-my-brain
+site_url: https://zhaofei0923.github.io/oh_my_brain
+repo_url: https://github.com/zhaofei0923/oh_my_brain
+repo_name: oh_my_brain
 
 theme:
   name: material
@@ -84,6 +84,6 @@ nav:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/YOUR_USERNAME/oh-my-brain
+      link: https://github.com/zhaofei0923/oh_my_brain
 
 copyright: Copyright &copy; 2026 OH MY BRAIN Contributors

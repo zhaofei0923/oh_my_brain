@@ -44,5 +44,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/YOUR_USERNAME/oh-my-brain/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/YOUR_USERNAME/oh-my-brain/releases/tag/v0.1.0
+[Unreleased]: https://github.com/zhaofei0923/oh_my_brain/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/zhaofei0923/oh_my_brain/releases/tag/v0.1.0

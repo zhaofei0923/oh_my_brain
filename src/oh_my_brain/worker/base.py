@@ -17,10 +17,11 @@ class WorkerBase(ABC):
     """Worker基类.
 
     职责：
-    1. 与Brain通信
+    1. 与Brain通信（支持自动重连）
     2. 接收任务分配
     3. 执行任务（通过子类实现）
     4. 上报任务结果
+    5. 断点续传支持
     """
 
     def __init__(self, config: WorkerConfig):
@@ -29,11 +30,17 @@ class WorkerBase(ABC):
         self._brain_client = BrainClient(
             brain_address=config.brain_address,
             worker_id=self._worker_id,
+            max_reconnect_attempts=getattr(config, 'max_reconnect_attempts', 10),
+            reconnect_interval=getattr(config, 'reconnect_interval', 2.0),
         )
 
         self._running = False
         self._current_task: Task | None = None
         self._capabilities: list[str] = []
+
+        # 错误计数（用于背压控制）
+        self._consecutive_errors = 0
+        self._max_consecutive_errors = 5
 
     @property
     def worker_id(self) -> str:
@@ -91,8 +98,17 @@ class WorkerBase(ABC):
                 await self._brain_client.send_heartbeat(
                     current_task_id=self._current_task.id if self._current_task else None,
                 )
+                # 成功则重置错误计数
+                self._consecutive_errors = 0
+            except ConnectionError as e:
+                logger.error(f"Heartbeat connection error: {e}")
+                self._consecutive_errors += 1
+                if self._consecutive_errors >= self._max_consecutive_errors:
+                    logger.error("Too many consecutive errors, attempting reconnect...")
+                    await self._brain_client.reconnect()
             except Exception as e:
                 logger.error(f"Heartbeat failed: {e}")
+                self._consecutive_errors += 1
 
             await asyncio.sleep(self._config.heartbeat_interval_seconds)
 
@@ -100,12 +116,24 @@ class WorkerBase(ABC):
         """任务处理循环."""
         while self._running:
             try:
+                # 检查连接状态
+                if not self._brain_client.is_connected:
+                    logger.warning("Lost connection to Brain, attempting to reconnect...")
+                    success = await self._brain_client.reconnect()
+                    if not success:
+                        logger.error("Failed to reconnect, waiting before retry...")
+                        await asyncio.sleep(5)
+                        continue
+
                 # 等待任务分配
                 message = await self._brain_client.receive()
 
                 if message is None:
                     await asyncio.sleep(0.1)
                     continue
+
+                # 成功接收消息，重置错误计数
+                self._consecutive_errors = 0
 
                 if message.get("type") == "task_assign":
                     task_data = message.get("task")
@@ -118,10 +146,22 @@ class WorkerBase(ABC):
                     await self.stop()
                     break
 
+                elif message.get("type") == "ping":
+                    # 响应 ping 请求
+                    logger.debug("Received ping, responding...")
+
+            except ConnectionError as e:
+                logger.error(f"Connection error in task loop: {e}")
+                self._consecutive_errors += 1
+                if self._consecutive_errors >= self._max_consecutive_errors:
+                    await self._brain_client.reconnect()
+                await asyncio.sleep(1)
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Task loop error: {e}")
+                self._consecutive_errors += 1
                 await asyncio.sleep(1)
 
     async def _handle_task(self, task: Task) -> None:
@@ -215,3 +255,46 @@ class WorkerBase(ABC):
             command=command,
             args=args,
         )
+
+    async def save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        """保存任务检查点.
+
+        用于断点续传，子类可以在任务执行过程中定期调用此方法保存进度。
+
+        Args:
+            checkpoint: 检查点数据
+        """
+        if self._current_task:
+            await self._brain_client.update_context(
+                key=f"checkpoint:{self._current_task.id}",
+                value=checkpoint,
+            )
+            logger.debug(f"Saved checkpoint for task {self._current_task.id}")
+
+    async def load_checkpoint(self) -> dict[str, Any] | None:
+        """加载任务检查点.
+
+        Returns:
+            检查点数据，如果没有则返回 None
+        """
+        if self._current_task:
+            context = await self._brain_client.request_context(
+                [f"checkpoint:{self._current_task.id}"]
+            )
+            return context.get(f"checkpoint:{self._current_task.id}")
+        return None
+
+    async def report_progress(self, progress: float, message: str | None = None) -> None:
+        """上报任务进度.
+
+        Args:
+            progress: 进度 (0.0 - 1.0)
+            message: 可选的状态消息
+        """
+        if self._current_task:
+            await self._brain_client.report_task_status(
+                task_id=self._current_task.id,
+                status=TaskStatus.RUNNING,
+                progress=progress,
+                message=message,
+            )

@@ -1,6 +1,6 @@
 # 🧠 OH MY BRAIN
 
-[![CI](https://github.com/YOUR_USERNAME/oh-my-brain/workflows/CI/badge.svg)](https://github.com/YOUR_USERNAME/oh-my-brain/actions)
+[![CI](https://github.com/zhaofei0923/oh-my-brain/workflows/CI/badge.svg)](https://github.com/zhaofei0923/oh-my-brain/actions)
 [![PyPI](https://img.shields.io/pypi/v/oh-my-brain)](https://pypi.org/project/oh-my-brain/)
 [![Python](https://img.shields.io/pypi/pyversions/oh-my-brain)](https://pypi.org/project/oh-my-brain/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -142,10 +142,10 @@ Then watch your AI team work in the Dashboard!
 
 ## 📖 Documentation
 
-- [Getting Started](docs/getting-started/)
-- [Dev Doc Format](docs/guides/dev-doc-format.md)
-- [Model Configuration](docs/guides/model-config.md)
-- [API Reference](docs/api/)
+- [Getting Started](docs/getting-started.md)
+- [Dev Doc Format](docs/dev-doc-format.md)
+- [Model Configuration](docs/configuration.md)
+- [Architecture](docs/architecture.md)
 
 ## 🖥️ Platform Support
 
@@ -160,8 +160,8 @@ Then watch your AI team work in the Dashboard!
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/oh-my-brain.git
-cd oh-my-brain
+git clone https://github.com/zhaofei0923/oh_my_brain.git
+cd oh_my_brain
 
 # Install dependencies
 uv sync --all-groups

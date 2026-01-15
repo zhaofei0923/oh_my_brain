@@ -51,16 +51,29 @@ dashboard = [
     "uvicorn>=0.27",
     "websockets>=12.0",
 ]
+metrics = [
+    "prometheus-client>=0.19",
+]
+mini-agent = [
+    "mini-agent @ git+https://github.com/MiniMax-AI/Mini-Agent.git",
+]
+llm = [
+    "openai>=1.0",
+    "anthropic>=0.20",
+]
+all = [
+    "oh-my-brain[dashboard,metrics,mini-agent,llm]",
+]
 
 [project.scripts]
 oh-my-brain = "oh_my_brain.cli:app"
 omb = "oh_my_brain.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/oh-my-brain"
-Documentation = "https://YOUR_USERNAME.github.io/oh-my-brain"
-Repository = "https://github.com/YOUR_USERNAME/oh-my-brain"
-Issues = "https://github.com/YOUR_USERNAME/oh-my-brain/issues"
+Homepage = "https://github.com/zhaofei0923/oh_my_brain"
+Documentation = "https://zhaofei0923.github.io/oh_my_brain"
+Repository = "https://github.com/zhaofei0923/oh_my_brain"
+Issues = "https://github.com/zhaofei0923/oh_my_brain/issues"
 
 [build-system]
 requires = ["hatchling"]

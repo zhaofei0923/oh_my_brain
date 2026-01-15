@@ -9,12 +9,22 @@ Brain是整个系统的中央协调器，负责：
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import Any
 
 from oh_my_brain.brain.context_manager import ContextManager
 from oh_my_brain.brain.git_manager import GitManager
+from oh_my_brain.brain.metrics import (
+    brain_tasks_pending,
+    brain_tasks_running,
+    brain_tasks_total,
+    brain_task_duration_seconds,
+    brain_workers_active,
+    connections_total,
+    safety_checks_total,
+)
 from oh_my_brain.brain.model_router import ModelRouter
 from oh_my_brain.brain.safety_checker import SafetyChecker
 from oh_my_brain.brain.task_scheduler import TaskScheduler
@@ -57,6 +67,7 @@ class WorkerInfo:
         self.current_task_id: str | None = None
         self.last_heartbeat = datetime.now()
         self.registered_at = datetime.now()
+        self.task_start_time: float | None = None  # 任务开始时间（用于指标）
 
     def is_healthy(self, timeout_seconds: int = 30) -> bool:
         """检查Worker是否健康（心跳未超时）."""
@@ -215,6 +226,10 @@ class BrainServer:
         self._workers[worker_id] = worker
         self._identity_map[identity] = worker_id
 
+        # 更新指标
+        brain_workers_active.inc()
+        connections_total.inc(component="worker", event="connect")
+
         logger.info(f"Worker registered: {worker_id} from {payload.hostname}")
 
         # 发送确认
@@ -226,6 +241,9 @@ class BrainServer:
         if worker_id:
             del self._workers[worker_id]
             del self._identity_map[identity]
+            # 更新指标
+            brain_workers_active.dec()
+            connections_total.inc(component="worker", event="disconnect")
             logger.info(f"Worker unregistered: {worker_id}")
 
     async def _handle_heartbeat(self, identity: bytes, message: HeartbeatMessage) -> None:
@@ -294,23 +312,41 @@ class BrainServer:
         # 更新Worker状态
         worker.status = "busy"
         worker.current_task_id = task.id
+        worker.task_start_time = time.time()
+
+        # 更新指标
+        brain_tasks_running.inc()
+        brain_tasks_pending.dec()
 
     async def _handle_task_result(self, identity: bytes, message: TaskResultMessage) -> None:
         """处理任务结果."""
         payload = message.payload
         worker_id = self._identity_map.get(identity)
 
+        task_type = "unknown"
+        duration = 0.0
+
         if worker_id:
             worker = self._workers.get(worker_id)
             if worker:
+                # 计算任务执行时间
+                if worker.task_start_time:
+                    duration = time.time() - worker.task_start_time
+                    worker.task_start_time = None
                 worker.status = "idle"
                 worker.current_task_id = None
 
         # 更新任务状态
         if payload.success:
             self._task_scheduler.mark_completed(payload.task_id)
+            brain_tasks_total.inc(status="completed", task_type=task_type)
         else:
             self._task_scheduler.mark_failed(payload.task_id, payload.error or "Unknown error")
+            brain_tasks_total.inc(status="failed", task_type=task_type)
+
+        # 更新指标
+        brain_tasks_running.dec()
+        brain_task_duration_seconds.observe(duration, task_type=task_type)
 
         # 更新上下文
         if payload.context_update:
@@ -361,6 +397,10 @@ class BrainServer:
             args=payload.args,
         )
 
+        # 更新指标
+        result_label = "approved" if result.approved else "rejected"
+        safety_checks_total.inc(command_type=payload.command_type, result=result_label)
+
         response = SafetyCheckResponse(
             msg_id=str(uuid.uuid4()),
             sender="brain",
@@ -408,7 +448,6 @@ class BrainServer:
         while self._running:
             await asyncio.sleep(self.config.heartbeat_interval_seconds)
 
-            datetime.now()
             timeout = self.config.heartbeat_timeout_seconds
 
             for worker_id, worker in list(self._workers.items()):

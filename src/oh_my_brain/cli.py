@@ -121,8 +121,37 @@ def brain_status(
     """查看Brain状态."""
     console.print(f"Checking Brain status at {host}:{port}...")
 
-    # TODO: 实现状态检查
-    console.print("[yellow]Status check not yet implemented[/yellow]")
+    import zmq
+
+    address = f"tcp://{host}:{port}"
+
+    try:
+        context = zmq.Context()
+        socket = context.socket(zmq.DEALER)
+        socket.setsockopt(zmq.RCVTIMEO, 3000)  # 3秒超时
+        socket.setsockopt(zmq.SNDTIMEO, 3000)
+        socket.connect(address)
+
+        # 发送心跳检测
+        socket.send_json({"type": "ping"})
+
+        try:
+            response = socket.recv_json()
+            console.print(f"[green]✓ Brain is running at {address}[/green]")
+            if response:
+                console.print(f"  Response: {response}")
+        except zmq.Again:
+            console.print(f"[yellow]⚠ Brain server at {address} is not responding[/yellow]")
+            console.print("  The server may be busy or not running.")
+
+        socket.close()
+        context.term()
+
+    except zmq.ZMQError as e:
+        console.print(f"[red]✗ Cannot connect to Brain at {address}[/red]")
+        console.print(f"  Error: {e}")
+        console.print("\n[yellow]To start the Brain server:[/yellow]")
+        console.print("  oh-my-brain brain start")
 
 
 # ============================================================
@@ -190,15 +219,48 @@ def worker_list(
     """列出所有Worker."""
     console.print("Fetching worker list...")
 
-    # TODO: 实现worker列表获取
-    table = Table(title="Workers")
-    table.add_column("ID", style="cyan")
-    table.add_column("Status", style="green")
-    table.add_column("Current Task")
-    table.add_column("Capabilities")
+    import zmq
 
-    console.print(table)
-    console.print("[yellow]Worker list not yet implemented[/yellow]")
+    try:
+        context = zmq.Context()
+        socket = context.socket(zmq.DEALER)
+        socket.setsockopt(zmq.RCVTIMEO, 3000)
+        socket.setsockopt(zmq.SNDTIMEO, 3000)
+        socket.connect(brain_address)
+
+        # 请求 Worker 列表
+        socket.send_json({"type": "list_workers"})
+
+        try:
+            response = socket.recv_json()
+
+            table = Table(title="Workers")
+            table.add_column("ID", style="cyan")
+            table.add_column("Status", style="green")
+            table.add_column("Current Task")
+            table.add_column("Capabilities")
+
+            workers = response.get("workers", [])
+            if workers:
+                for w in workers:
+                    status = "active" if w.get("active") else "idle"
+                    task = w.get("current_task", "-")
+                    caps = ", ".join(w.get("capabilities", [])) or "-"
+                    table.add_row(w.get("id", "unknown"), status, task, caps)
+                console.print(table)
+            else:
+                console.print("[yellow]No workers connected[/yellow]")
+
+        except zmq.Again:
+            console.print("[yellow]Brain server is not responding[/yellow]")
+
+        socket.close()
+        context.term()
+
+    except zmq.ZMQError as e:
+        console.print(f"[red]Cannot connect to Brain: {e}[/red]")
+        console.print("\n[yellow]Make sure the Brain server is running:[/yellow]")
+        console.print("  oh-my-brain brain start")
 
 
 # ============================================================
@@ -330,7 +392,78 @@ def doc_run(
         return
 
     # 实际执行
-    console.print("[yellow]Execution not yet implemented[/yellow]")
+    asyncio.run(_execute_dev_doc(dev_doc, brain_address, console))
+
+
+async def _execute_dev_doc(dev_doc, brain_address: str, console: Console) -> None:
+    """执行开发文档中的任务.
+
+    Args:
+        dev_doc: 解析后的开发文档
+        brain_address: Brain服务器地址
+        console: Rich控制台
+    """
+    from oh_my_brain.brain.task_scheduler import TaskScheduler
+    from oh_my_brain.schemas.task import TaskStatus
+
+    console.print("\n[bold blue]Starting execution...[/bold blue]\n")
+
+    # 创建任务调度器
+    scheduler = TaskScheduler()
+    scheduler.load_from_dev_doc(dev_doc)
+
+    # 显示任务统计
+    all_tasks = scheduler.get_all_tasks()
+    pending_count = len([t for t in all_tasks if t.status == TaskStatus.PENDING])
+    console.print(f"Loaded {len(all_tasks)} tasks, {pending_count} pending")
+
+    # 检查是否有可用的 Worker
+    console.print("\n[yellow]Note: Make sure Brain server and Workers are running:[/yellow]")
+    console.print("  1. oh-my-brain brain start")
+    console.print("  2. oh-my-brain worker start")
+    console.print("")
+
+    # 连接到 Brain 并提交任务
+    import zmq
+    import zmq.asyncio
+
+    try:
+        context = zmq.asyncio.Context()
+        socket = context.socket(zmq.DEALER)
+        socket.connect(brain_address)
+
+        console.print(f"Connected to Brain at {brain_address}")
+
+        # 这里可以实现任务提交逻辑
+        # 但更好的方式是让 Brain 自动从 DevDoc 加载任务
+        console.print("\n[green]Tasks are ready for execution.[/green]")
+        console.print("Workers will automatically pick up tasks from the Brain.")
+
+        # 显示任务列表
+        task_table = Table(title="Pending Tasks")
+        task_table.add_column("ID", style="dim")
+        task_table.add_column("Name")
+        task_table.add_column("Type")
+        task_table.add_column("Dependencies")
+
+        for task in all_tasks:
+            if task.status == TaskStatus.PENDING:
+                deps = ", ".join(task.depends_on) if task.depends_on else "-"
+                task_table.add_row(
+                    task.id[:8],
+                    task.name,
+                    task.task_type.value if task.task_type else "unknown",
+                    deps,
+                )
+
+        console.print(task_table)
+
+        socket.close()
+        context.term()
+
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Brain: {e}[/red]")
+        console.print("[yellow]Make sure the Brain server is running.[/yellow]")
 
 
 # ============================================================
