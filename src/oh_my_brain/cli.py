@@ -271,20 +271,53 @@ def worker_list(
 @dev_doc_app.command("validate")
 def doc_validate(
     file: Path = typer.Argument(..., help="YAML file to validate"),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        "-s",
+        help="Strict mode: warnings are also errors",
+    ),
+    output_format: str = typer.Option(
+        "full",
+        "--format",
+        "-f",
+        help="Output format: full, summary, json",
+    ),
 ) -> None:
-    """验证开发文档."""
+    """验证开发文档（增强版）."""
     if not file.exists():
         console.print(f"[red]File not found: {file}[/red]")
         raise typer.Exit(1)
 
-    from oh_my_brain.brain.doc_parser import DocParser
+    from oh_my_brain.doc.validator import DocValidator
 
-    valid, error = DocParser.validate_file(file)
+    validator = DocValidator(strict_mode=strict)
+    result = validator.validate_file(file)
 
-    if valid:
-        console.print(f"[green]✓ Valid development document: {file}[/green]")
+    if output_format == "json":
+        import json
+        output = {
+            "valid": result.valid,
+            "error_count": result.error_count,
+            "warning_count": result.warning_count,
+            "issues": [
+                {
+                    "severity": issue.severity.value,
+                    "code": issue.code,
+                    "path": issue.path,
+                    "message": issue.message,
+                    "suggestion": issue.suggestion,
+                }
+                for issue in result.issues
+            ],
+        }
+        console.print(json.dumps(output, ensure_ascii=False, indent=2))
+    elif output_format == "summary":
+        console.print(result.get_summary())
     else:
-        console.print(f"[red]✗ Invalid document: {error}[/red]")
+        console.print(result.format_report())
+
+    if not result.valid:
         raise typer.Exit(1)
 
 
@@ -331,6 +364,302 @@ def doc_schema(
         console.print(f"[green]Schema saved to: {output}[/green]")
     else:
         console.print(schema_json)
+
+
+@dev_doc_app.command("generate")
+def doc_generate(
+    project_name: str = typer.Option(
+        ...,
+        "--name",
+        "-n",
+        help="Project name",
+    ),
+    requirements: Path | None = typer.Option(
+        None,
+        "--requirements",
+        "-r",
+        help="Requirements file path",
+    ),
+    requirements_text: str | None = typer.Option(
+        None,
+        "--text",
+        "-t",
+        help="Requirements text (direct input)",
+    ),
+    project_type: str = typer.Option(
+        "web_api",
+        "--type",
+        "-p",
+        help="Project type: web_api, web_frontend, h5_mobile, saas_platform, data_platform, cpp_algorithm, etc.",
+    ),
+    output: Path = typer.Option(
+        Path("dev_doc.yaml"),
+        "--output",
+        "-o",
+        help="Output file path",
+    ),
+    use_llm: bool = typer.Option(
+        True,
+        "--use-llm/--no-llm",
+        help="Use LLM for generation (requires API key)",
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        envvar="MINIMAX_API_KEY",
+        help="MiniMax API key",
+    ),
+) -> None:
+    """使用 LLM 生成开发文档（增强版）."""
+    from oh_my_brain.doc.generator import DocGenerator, GenerationMode, ProjectType as PT, save_dev_doc
+
+    # 获取需求文本
+    req_text = ""
+    if requirements and requirements.exists():
+        req_text = requirements.read_text(encoding="utf-8")
+    elif requirements_text:
+        req_text = requirements_text
+    elif use_llm:
+        console.print("[red]需要提供 --requirements 或 --text 参数[/red]")
+        raise typer.Exit(1)
+
+    # 解析项目类型
+    try:
+        pt = PT(project_type)
+    except ValueError:
+        console.print(f"[red]未知项目类型: {project_type}[/red]")
+        console.print(f"可用类型: {', '.join([t.value for t in PT])}")
+        raise typer.Exit(1)
+
+    console.print(f"[bold blue]📝 正在生成开发文档: {project_name}[/bold blue]")
+    console.print(f"   项目类型: {project_type}")
+    console.print(f"   使用 LLM: {use_llm}")
+    console.print()
+
+    mode = GenerationMode.AUTO if use_llm else GenerationMode.MANUAL
+    generator = DocGenerator(api_key=api_key, project_type=pt, mode=mode)
+
+    try:
+        if use_llm and api_key:
+            doc = asyncio.run(
+                generator.generate_from_requirements(
+                    project_name=project_name,
+                    requirements=req_text,
+                )
+            )
+            console.print("[green]✨ LLM 生成完成[/green]")
+        else:
+            doc = generator.create_from_template(project_name)
+            console.print("[green]✨ 模板生成完成[/green]")
+
+        save_dev_doc(doc, output)
+        console.print(f"[green]📁 文档已保存: {output}[/green]")
+
+        # 显示摘要
+        console.print()
+        console.print("[bold]📊 文档摘要:[/bold]")
+        console.print(f"   模块数: {len(doc.modules)}")
+        total_tasks = sum(len(m.sub_tasks) for m in doc.modules)
+        console.print(f"   任务数: {total_tasks}")
+
+    except Exception as e:
+        console.print(f"[red]❌ 生成失败: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@dev_doc_app.command("show")
+def doc_show(
+    file: Path = typer.Argument(..., help="Development document file"),
+    output_format: str = typer.Option(
+        "tree",
+        "--format",
+        "-f",
+        help="Output format: tree, table, json",
+    ),
+) -> None:
+    """显示开发文档内容."""
+    if not file.exists():
+        console.print(f"[red]File not found: {file}[/red]")
+        raise typer.Exit(1)
+
+    from oh_my_brain.doc.updater import DocUpdater
+
+    updater = DocUpdater()
+    try:
+        updater.load_from_file(file)
+    except Exception as e:
+        console.print(f"[red]无法加载文档: {e}[/red]")
+        raise typer.Exit(1)
+
+    doc = updater.doc
+    if not doc:
+        console.print("[red]文档为空[/red]")
+        raise typer.Exit(1)
+
+    if output_format == "json":
+        import json
+        console.print(json.dumps(doc.model_dump(), ensure_ascii=False, indent=2))
+    elif output_format == "table":
+        _show_doc_table(doc)
+    else:
+        _show_doc_tree(doc)
+
+
+def _show_doc_tree(doc) -> None:
+    """树形显示文档."""
+    console.print(f"[bold blue]📦 {doc.project_name}[/bold blue]")
+    console.print(f"├── 版本: {doc.version}")
+    console.print(f"├── 描述: {doc.description}")
+    console.print(f"└── 模块 ({len(doc.modules)}):")
+
+    for i, module in enumerate(doc.modules):
+        is_last = (i == len(doc.modules) - 1)
+        prefix = "    └──" if is_last else "    ├──"
+        child_prefix = "       " if is_last else "    │  "
+
+        console.print(f"{prefix} [yellow]📁 {module.name}[/yellow] ({module.id})")
+        console.print(f"{child_prefix} ├── 优先级: P{module.priority}")
+        console.print(f"{child_prefix} ├── 依赖: {', '.join(module.dependencies) or '无'}")
+        console.print(f"{child_prefix} └── 任务 ({len(module.sub_tasks)}):")
+
+        for j, task in enumerate(module.sub_tasks):
+            is_last_task = (j == len(module.sub_tasks) - 1)
+            task_prefix = f"{child_prefix}     └──" if is_last_task else f"{child_prefix}     ├──"
+
+            type_emoji = {
+                "feature": "✨",
+                "bugfix": "🐛",
+                "refactor": "♻️",
+                "test": "🧪",
+                "docs": "📝",
+            }.get(task.type.value, "📋")
+
+            desc = task.description[:35] + "..." if len(task.description) > 35 else task.description
+            console.print(f"{task_prefix} {type_emoji} [dim]{task.id}[/dim]: {desc}")
+
+
+def _show_doc_table(doc) -> None:
+    """表格显示文档."""
+    console.print()
+    console.print(f"[bold blue]项目: {doc.project_name}[/bold blue]")
+    console.print()
+
+    for module in doc.modules:
+        table = Table(title=f"[{module.id}] {module.name} (P{module.priority})")
+        table.add_column("ID", style="dim")
+        table.add_column("类型", width=10)
+        table.add_column("描述", width=40)
+        table.add_column("时间", justify="right")
+
+        for task in module.sub_tasks:
+            desc = task.description[:38] + "..." if len(task.description) > 38 else task.description
+            table.add_row(
+                task.id,
+                task.type.value,
+                desc,
+                f"{task.estimated_minutes}m",
+            )
+
+        console.print(table)
+        console.print()
+
+
+@dev_doc_app.command("add-module")
+def doc_add_module(
+    file: Path = typer.Argument(..., help="Development document file"),
+    module_id: str = typer.Option(..., "--id", help="Module ID (e.g., mod-user-auth)"),
+    name: str = typer.Option(..., "--name", "-n", help="Module name"),
+    description: str = typer.Option(..., "--description", "-d", help="Module description"),
+    priority: int = typer.Option(2, "--priority", "-p", help="Priority (1-3)"),
+) -> None:
+    """添加模块到开发文档."""
+    from oh_my_brain.doc.updater import DocUpdater
+    from oh_my_brain.schemas.dev_doc import Module
+
+    updater = DocUpdater()
+    updater.load_from_file(file)
+
+    module = Module(
+        id=module_id,
+        name=name,
+        description=description,
+        priority=priority,
+        acceptance_criteria="TODO: 填写验收标准",
+        sub_tasks=[],
+        dependencies=[],
+    )
+
+    try:
+        updater.add_module(module)
+        updater.commit(f"添加模块: {module_id}")
+        updater.save(file)
+        console.print(f"[green]✅ 已添加模块: {module_id}[/green]")
+    except ValueError as e:
+        console.print(f"[red]❌ 添加失败: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@dev_doc_app.command("add-task")
+def doc_add_task(
+    file: Path = typer.Argument(..., help="Development document file"),
+    module_id: str = typer.Option(..., "--module", "-m", help="Target module ID"),
+    description: str = typer.Option(..., "--description", "-d", help="Task description"),
+    requirements: str = typer.Option(..., "--requirements", "-r", help="Task requirements"),
+    task_type: str = typer.Option("feature", "--type", "-t", help="Task type: feature, bugfix, refactor, test, docs"),
+    minutes: int = typer.Option(30, "--minutes", help="Estimated minutes"),
+) -> None:
+    """添加任务到模块."""
+    from oh_my_brain.doc.updater import DocUpdater
+    from oh_my_brain.schemas.dev_doc import SubTask, TaskType
+
+    updater = DocUpdater()
+    updater.load_from_file(file)
+
+    task_id = updater.generate_next_task_id()
+
+    try:
+        tt = TaskType(task_type)
+    except ValueError:
+        console.print(f"[red]未知任务类型: {task_type}[/red]")
+        raise typer.Exit(1)
+
+    task = SubTask(
+        id=task_id,
+        description=description,
+        type=tt,
+        requirements=requirements,
+        files_involved=[],
+        estimated_minutes=minutes,
+    )
+
+    try:
+        updater.add_task(module_id, task)
+        updater.commit(f"添加任务: {task_id}")
+        updater.save(file)
+        console.print(f"[green]✅ 已添加任务: {task_id} -> {module_id}[/green]")
+    except ValueError as e:
+        console.print(f"[red]❌ 添加失败: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@dev_doc_app.command("types")
+def doc_types() -> None:
+    """列出支持的项目类型和模板."""
+    from oh_my_brain.doc.generator import PROJECT_TEMPLATES, ProjectType
+
+    console.print("[bold blue]📋 支持的项目类型:[/bold blue]\n")
+
+    for pt in ProjectType:
+        template = PROJECT_TEMPLATES.get(pt, {})
+        tech_stack = template.get("tech_stack", [])
+        modules = template.get("common_modules", [])
+
+        console.print(f"  [yellow]{pt.value}[/yellow]")
+        if tech_stack:
+            console.print(f"  ├── 技术栈: {', '.join(tech_stack[:5])}")
+        if modules:
+            console.print(f"  └── 常用模块: {', '.join(modules[:5])}")
+        console.print()
 
 
 @dev_doc_app.command("run")
