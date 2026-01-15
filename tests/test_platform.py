@@ -1,10 +1,11 @@
 """平台适配器测试."""
 
-import pytest
 import sys
 
-from oh_my_brain.platform.detect import get_platform, get_platform_adapter, is_wsl
+import pytest
+
 from oh_my_brain.platform.base import PlatformAdapter
+from oh_my_brain.platform.detect import get_platform, get_platform_adapter
 
 
 class TestPlatformDetection:

@@ -2,9 +2,7 @@
 
 import asyncio
 import logging
-import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -47,7 +45,7 @@ def setup_logging(verbose: bool = False) -> None:
 
 @brain_app.command("start")
 def brain_start(
-    config: Optional[Path] = typer.Option(
+    config: Path | None = typer.Option(
         None,
         "--config",
         "-c",
@@ -91,8 +89,8 @@ def brain_start(
 
     console.print(f"Starting Brain server on {host}:{port}...")
 
-    from oh_my_brain.schemas.config import BrainConfig
     from oh_my_brain.brain.server import BrainServer
+    from oh_my_brain.schemas.config import BrainConfig
 
     # 加载配置
     if config and config.exists():
@@ -141,12 +139,12 @@ def worker_start(
         "-b",
         help="Brain server address",
     ),
-    worker_id: Optional[str] = typer.Option(
+    worker_id: str | None = typer.Option(
         None,
         "--id",
         help="Worker ID (auto-generated if not provided)",
     ),
-    capabilities: Optional[str] = typer.Option(
+    capabilities: str | None = typer.Option(
         None,
         "--caps",
         help="Comma-separated capabilities",
@@ -231,7 +229,7 @@ def doc_validate(
 
 @dev_doc_app.command("template")
 def doc_template(
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output",
         "-o",
@@ -252,7 +250,7 @@ def doc_template(
 
 @dev_doc_app.command("schema")
 def doc_schema(
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output",
         "-o",

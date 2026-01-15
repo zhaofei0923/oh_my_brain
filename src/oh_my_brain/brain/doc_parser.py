@@ -33,7 +33,7 @@ class DocParser:
         if not path.exists():
             raise ValueError(f"File not found: {path}")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         return DocParser.parse_dict(data)

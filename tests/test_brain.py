@@ -3,7 +3,7 @@
 import pytest
 
 from oh_my_brain.brain.doc_parser import DocParser
-from oh_my_brain.brain.safety_checker import SafetyChecker, SafetyCheckResult
+from oh_my_brain.brain.safety_checker import SafetyChecker
 
 
 class TestDocParser:

@@ -13,6 +13,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from oh_my_brain.brain.context_manager import ContextManager
+from oh_my_brain.brain.git_manager import GitManager
+from oh_my_brain.brain.model_router import ModelRouter
+from oh_my_brain.brain.safety_checker import SafetyChecker
+from oh_my_brain.brain.task_scheduler import TaskScheduler
 from oh_my_brain.protocol.messages import (
     BrainMessage,
     ContextGetRequest,
@@ -26,13 +31,8 @@ from oh_my_brain.protocol.messages import (
     TaskResultMessage,
     WorkerRegisterMessage,
 )
-from oh_my_brain.protocol.transport import Transport, get_transport, get_default_endpoint
+from oh_my_brain.protocol.transport import Transport, get_default_endpoint, get_transport
 from oh_my_brain.schemas.config import BrainConfig
-from oh_my_brain.brain.context_manager import ContextManager
-from oh_my_brain.brain.task_scheduler import TaskScheduler
-from oh_my_brain.brain.model_router import ModelRouter
-from oh_my_brain.brain.safety_checker import SafetyChecker
-from oh_my_brain.brain.git_manager import GitManager
 
 logger = logging.getLogger(__name__)
 

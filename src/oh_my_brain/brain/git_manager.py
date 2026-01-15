@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from git import Repo, GitCommandError
+from git import GitCommandError, Repo
 
 logger = logging.getLogger(__name__)
 

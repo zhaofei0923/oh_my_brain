@@ -3,11 +3,10 @@
 统一的LLM调用接口，支持多种模型提供商。
 """
 
-import asyncio
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
 
 logger = logging.getLogger(__name__)
 

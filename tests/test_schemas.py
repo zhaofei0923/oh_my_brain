@@ -1,8 +1,7 @@
 """Schema测试."""
 
-import pytest
 
-from oh_my_brain.schemas.dev_doc import DevDoc, Module, SubTask, TechStack, ProjectInfo
+from oh_my_brain.schemas.dev_doc import DevDoc
 from oh_my_brain.schemas.task import Task, TaskStatus, TaskType
 
 

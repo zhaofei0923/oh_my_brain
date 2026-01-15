@@ -14,7 +14,6 @@ from oh_my_brain.schemas.model_config import (
     ModelCapability,
     ModelConfig,
     ModelPoolConfig,
-    TaskModelMapping,
 )
 from oh_my_brain.schemas.task import TaskType
 
@@ -54,7 +53,7 @@ class ModelRouter:
     def from_yaml(cls, path: Path | str) -> "ModelRouter":
         """从YAML文件加载配置."""
         path = Path(path).expanduser()
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         config = ModelPoolConfig.model_validate(data)
         return cls(config)

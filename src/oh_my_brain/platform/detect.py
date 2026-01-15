@@ -28,7 +28,7 @@ def get_platform() -> str:
 def is_wsl() -> bool:
     """检测是否在WSL环境中运行."""
     try:
-        with open("/proc/version", "r") as f:
+        with open("/proc/version") as f:
             version = f.read().lower()
             return "microsoft" in version or "wsl" in version
     except FileNotFoundError:

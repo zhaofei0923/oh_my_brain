@@ -1,18 +1,16 @@
 """Protocol测试."""
 
-import pytest
 
 from oh_my_brain.protocol.messages import (
-    WorkerRegisterMessage,
-    HeartbeatMessage,
-    TaskAssignMessage,
-    TaskResultMessage,
     ContextRequest,
     ContextUpdate,
+    HeartbeatMessage,
     SafetyCheckRequest,
     SafetyCheckResponse,
+    TaskAssignMessage,
+    TaskResultMessage,
+    WorkerRegisterMessage,
 )
-from oh_my_brain.schemas.task import TaskStatus
 
 
 class TestMessages:

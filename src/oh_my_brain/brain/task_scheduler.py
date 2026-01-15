@@ -5,11 +5,11 @@
 
 import logging
 from collections import defaultdict
-from datetime import datetime
 from typing import Any
 
+from oh_my_brain.schemas.dev_doc import DevDoc
+from oh_my_brain.schemas.dev_doc import TaskType as DocTaskType
 from oh_my_brain.schemas.task import Task, TaskStatus, TaskType
-from oh_my_brain.schemas.dev_doc import DevDoc, SubTask, TaskType as DocTaskType
 
 logger = logging.getLogger(__name__)
 

@@ -90,7 +90,7 @@ class LinuxAdapter(PlatformAdapter):
         if process.pid and process.is_alive():
             try:
                 # 尝试读取 /proc 信息
-                with open(f"/proc/{process.pid}/status", "r") as f:
+                with open(f"/proc/{process.pid}/status") as f:
                     for line in f:
                         if line.startswith("VmRSS:"):
                             # 内存使用（KB）

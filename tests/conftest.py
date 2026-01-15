@@ -1,10 +1,9 @@
 """OH MY BRAIN 测试配置."""
 
 import asyncio
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 
 import pytest
-import pytest_asyncio
 
 
 @pytest.fixture(scope="session")

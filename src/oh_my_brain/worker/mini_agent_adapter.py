@@ -5,16 +5,16 @@
 
 import asyncio
 import logging
-import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
+from oh_my_brain.schemas.config import WorkerConfig
 from oh_my_brain.schemas.task import Task, TaskResult, TaskStatus
 from oh_my_brain.worker.base import WorkerBase
 from oh_my_brain.worker.brain_client import BrainClient
-from oh_my_brain.schemas.config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ class MiniAgentAdapter(WorkerBase):
         prompt_parts = [
             f"# Task: {task.name}",
             "",
-            f"## Description",
+            "## Description",
             task.description or "",
             "",
         ]
