@@ -180,23 +180,23 @@ class MiniAgentAdapter(WorkerBase):
             if result.get("success"):
                 return TaskResult(
                     task_id=task.id,
-                    status=TaskStatus.COMPLETED,
+                    success=True,
                     output=result.get("output", ""),
                     files_modified=result.get("files_modified", []),
                 )
             else:
                 return TaskResult(
                     task_id=task.id,
-                    status=TaskStatus.FAILED,
-                    error_message=result.get("error", "Unknown error"),
+                    success=False,
+                    error=result.get("error", "Unknown error"),
                 )
 
         except Exception as e:
             logger.error(f"Task execution failed: {e}")
             return TaskResult(
                 task_id=task.id,
-                status=TaskStatus.FAILED,
-                error_message=str(e),
+                success=False,
+                error=str(e),
             )
 
     def _build_prompt(self, task: Task, context: dict[str, Any]) -> str:
@@ -231,15 +231,6 @@ class MiniAgentAdapter(WorkerBase):
                 [
                     "## Files to work on",
                     "\n".join(f"- {f}" for f in task.files_involved),
-                    "",
-                ]
-            )
-
-        if task.acceptance_criteria:
-            prompt_parts.extend(
-                [
-                    "## Acceptance Criteria",
-                    task.acceptance_criteria,
                     "",
                 ]
             )
